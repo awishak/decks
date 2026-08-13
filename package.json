@@ -1,0 +1,36 @@
+{
+  "name": "@ishak/decks",
+  "version": "0.0.1",
+  "description": "Full-screen cards that block a site until the viewer has read them and answered what you asked.",
+  "type": "module",
+  "main": "./dist/decks.js",
+  "module": "./dist/decks.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/decks.js"
+    },
+    "./migrations/*": "./migrations/*"
+  },
+  "files": ["dist", "migrations", "BRIEF.md"],
+  "scripts": {
+    "build": "vite build",
+    "types": "tsc -p jsconfig.json",
+    "smoke": "esbuild scripts/smoke.jsx --bundle --platform=node --format=cjs --outfile=node_modules/.cache/smoke.cjs --loader:.jsx=jsx --jsx=automatic --log-level=error && node node_modules/.cache/smoke.cjs",
+    "test": "npm run smoke"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.24.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.11"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
