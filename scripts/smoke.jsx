@@ -51,6 +51,13 @@ console.log("\nlogic");
 
 check("class deck has 10 live cards", () => liveCards(CG).length === 10);
 
+// The table requires a key on every card since 002_card_key.sql, because the
+// whole package addresses cards by key. A seed without one would load and then
+// break resume on the first real viewer, so the seeds are held to the same rule.
+check("every seeded card has a key, unique within its deck", () =>
+  [CG, F5].every(d => d.cards.every(c => typeof c.key === "string" && c.key)
+    && new Set(d.cards.map(c => c.key)).size === d.cards.length));
+
 check("branch: auditing skips to the send-off", () =>
   nextCard(CG, "enrolled", "auditing").key === "done");
 

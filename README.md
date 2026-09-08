@@ -21,7 +21,7 @@ not written yet.**
 
 | | |
 |---|---|
-| Supabase schema and RLS | done, `migrations/001_init.sql` |
+| Supabase schema and RLS | done, `migrations/` |
 | Branching, resume, required-card logic | done and tested, `src/resolve.js` |
 | Deck shell and seven card types | done |
 | Both real decks encoded as data | done, `seeds/` |
@@ -38,7 +38,7 @@ npm run smoke      # logic assertions, every card rendered, type floor
 npm run build      # library bundle to dist/
 ```
 
-Then run `migrations/001_init.sql` against your Supabase project. **Read the RLS
+Then run the files in `migrations/` against your Supabase project, in order. **Read the RLS
 block at the bottom of it first** — the default is permissive and suits an
 anon-key app with no auth. A site with real logins needs the strict variant.
 

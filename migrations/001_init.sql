@@ -40,8 +40,9 @@ create table if not exists deck_cards (
   -- Everything the card needs to render: headline, body, options, the registry
   -- name for a custom card. Shape varies by type on purpose.
   config      jsonb not null default '{}'::jsonb,
-  -- [{ "when": <answer value>, "goto": "<card uuid>" }]. First match wins,
-  -- no match falls through to the next live card by position.
+  -- [{ "when": <answer value>, "goto": "<card key>" }]. First match wins,
+  -- no match falls through to the next live card by position. The key column
+  -- itself arrives in 002_card_key.sql.
   branches    jsonb,
   -- Soft delete. A retired card stops being served, its stored answers survive,
   -- and branches pointing at it fall through. Never hard-delete a card that has
