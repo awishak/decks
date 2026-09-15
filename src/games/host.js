@@ -155,6 +155,16 @@ export async function saveTeams(sb, { deckId, teams, existing = [] }) {
   }
 }
 
+/** Deny a typed answer: it and every answer with the same words count as wrong and leave the stream. */
+export async function denyAnswer(sb, { deckId, cardId, value }) {
+  return mustWrite(await sb.from("deck_accepts").insert({ deck_id: deckId, card_id: cardId, value: { denied: value } }).select(), "denyAnswer")[0];
+}
+
+/** Take back an approval or a denial: its answers wait in the stream again. */
+export async function undoVerdict(sb, { id }) {
+  return mustWrite(await sb.from("deck_accepts").delete().eq("id", id).select(), "undoVerdict");
+}
+
 export async function acceptAnswer(sb, { deckId, cardId, value }) {
   return mustWrite(await sb.from("deck_accepts").insert({ deck_id: deckId, card_id: cardId, value }).select(), "acceptAnswer")[0];
 }

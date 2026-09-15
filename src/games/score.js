@@ -46,7 +46,11 @@ export function scoreGame({ cards = [], keys = {}, accepts = [], responses = [] 
   const qs = cards.filter(c => c.type === undefined || c.type === "question")
     .slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
   const acceptedFor = {};
-  accepts.forEach(a => { (acceptedFor[a.card_id] ||= []).push(a.value); });
+  const deniedFor = {};
+  accepts.forEach(a => {
+    if (isDenial(a.value)) (deniedFor[a.card_id] ||= []).push(a.value.denied);
+    else (acceptedFor[a.card_id] ||= []).push(a.value);
+  });
 
   const viewers = {};
   const questions = qs.map((card) => {
@@ -55,7 +59,7 @@ export function scoreGame({ cards = [], keys = {}, accepts = [], responses = [] 
     const rows = responses.filter(r => r.card_id === card.id);
     const q = {
       cardId: card.id, key: card.key, text: card.config?.text || "", typed,
-      answered: rows.length, right: 0, pct: 0, tough: false, reviews: 0,
+      answered: 0, right: 0, pct: 0, tough: false, reviews: 0, waiting: 0,
       // Which options count as right, by the key or accepted since: the panel colours these.
       correct: typed ? [] : [...(keys[card.id] || []), ...(acceptedFor[card.id] || [])].filter(Number.isInteger),
       counts: typed ? [] : options.map(() => 0),
@@ -65,12 +69,19 @@ export function scoreGame({ cards = [], keys = {}, accepts = [], responses = [] 
     rows.forEach((r) => {
       const value = valueOf(r);
       const right = isRight(value, keys[card.id], acceptedFor[card.id]);
-      const v = (viewers[r.viewer_id] ||= { right: 0, answered: 0, pct: 0 });
-      v.answered += 1;
-      if (right) { v.right += 1; q.right += 1; }
+      // A typed answer that matches nothing waits for the host, and waiting
+      // answers stay out of every score and percentage until decided.
+      const denied = typed && !right && (deniedFor[card.id] || []).some(d => norm(d) === norm(value));
+      const waiting = typed && !right && !denied;
+      const v = (viewers[r.viewer_id] ||= { right: 0, answered: 0, pct: 0, waiting: 0 });
       if (r.review) q.reviews += 1;
-      if (typed) q.answers.push({ viewerId: r.viewer_id, value, right, review: !!r.review });
-      else if (Number.isInteger(value) && value >= 0 && value < options.length) {
+      if (typed) q.answers.push({ viewerId: r.viewer_id, value, right, denied, waiting, review: !!r.review, at: r.answered_at || null });
+      if (waiting) { v.waiting += 1; q.waiting += 1; return; }
+      v.answered += 1;
+      q.answered += 1;
+      if (right) { v.right += 1; q.right += 1; }
+      if (typed) return;
+      if (Number.isInteger(value) && value >= 0 && value < options.length) {
         q.counts[value] += 1;
         if (r.review) q.reviewBy[value] += 1;
       }
@@ -82,11 +93,64 @@ export function scoreGame({ cards = [], keys = {}, accepts = [], responses = [] 
 
   Object.values(viewers).forEach(v => { v.pct = pct(v.right, v.answered); });
   const ranking = Object.entries(viewers)
+    .filter(([, v]) => v.answered > 0)   // someone whose every answer waits has no score yet
     .map(([viewerId, v]) => ({ viewerId, ...v }))
     .sort((a, b) => b.pct - a.pct || b.right - a.right || a.viewerId.localeCompare(b.viewerId));
   const average = ranking.length ? Math.round(ranking.reduce((s, v) => s + v.pct, 0) / ranking.length) : 0;
 
   return { viewers, ranking, questions, average };
+}
+
+// ─── the approval stream ───
+//
+// Typed answers that match no right answer come to the host in the order they
+// arrived, and the host approves or denies each. A decision is a row in
+// deck_accepts and holds for every answer with the same words, now and later:
+// an approval's value is the answer itself, a denial's value is
+// { denied: answer }. A denial can never count as right, in this file or in the
+// database's deck_scores, because an object never compares equal to an answer.
+
+export const isDenial = (v) => !!v && typeof v === "object" && typeof v.denied === "string";
+
+/**
+ * What waits for a decision, oldest first. The same words for the same question
+ * are one entry, placed where the first of them arrived.
+ * Each: { cardId, n, question, value, count, viewers, firstAt, closeTo }
+ */
+export function approvalStream(game) {
+  const score = scoreGame(game);
+  const acceptedFor = {};
+  (game.accepts || []).forEach(a => { if (!isDenial(a.value)) (acceptedFor[a.card_id] ||= []).push(a.value); });
+  const entries = new Map();
+  score.questions.forEach((q, i) => {
+    if (!q.typed) return;
+    const targets = [...(game.keys?.[q.cardId] || []), ...(acceptedFor[q.cardId] || [])].filter(t => typeof t === "string");
+    q.answers.filter(a => a.waiting).forEach(a => {
+      const k = q.cardId + "|" + norm(a.value);
+      const e = entries.get(k) || { cardId: q.cardId, n: i + 1, question: q.text, value: String(a.value).trim(), count: 0, viewers: [], firstAt: a.at, closeTo: targets.find(t => isClose(a.value, t)) ?? null };
+      e.count += 1;
+      e.viewers.push(a.viewerId);
+      if (a.at && (!e.firstAt || a.at < e.firstAt)) e.firstAt = a.at;
+      entries.set(k, e);
+    });
+  });
+  return [...entries.values()].sort((a, b) => String(a.firstAt || "").localeCompare(String(b.firstAt || "")) || a.n - b.n);
+}
+
+/** The latest approvals and denials of typed answers, newest first, for Undo. */
+export function recentVerdicts(game, limit = 8) {
+  const cards = (game.cards || []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  return (game.accepts || [])
+    .filter(a => {
+      const card = cards.find(c => c.id === a.card_id);
+      return card?.config?.answer === "typed";
+    })
+    .sort((a, b) => String(b.accepted_at || "").localeCompare(String(a.accepted_at || "")))
+    .slice(0, limit)
+    .map(a => ({
+      id: a.id, cardId: a.card_id, n: cards.findIndex(c => c.id === a.card_id) + 1,
+      value: isDenial(a.value) ? a.value.denied : String(a.value), verdict: isDenial(a.value) ? "denied" : "approved",
+    }));
 }
 
 /** What changes if the host accepts `value` on one card: shown before Accept is pressed. */

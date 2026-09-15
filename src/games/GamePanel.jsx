@@ -16,8 +16,8 @@
 
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { DEFAULT_THEME, SIZE } from "../tokens.js";
-import { scoreGame, previewAccept, groupTyped, spreadBuckets, timeLeft } from "./score.js";
-import { loadHostGame, watchGame, acceptAnswer, openGame, closeGame, release, grantExtraTime } from "./host.js";
+import { scoreGame, previewAccept, groupTyped, spreadBuckets, timeLeft, isDenial, norm, approvalStream, recentVerdicts } from "./score.js";
+import { loadHostGame, watchGame, acceptAnswer, denyAnswer, undoVerdict, openGame, closeGame, release, grantExtraTime } from "./host.js";
 import { OpenConfirm } from "./GameSetup.jsx";
 
 const LETTERS = "ABCDEFGHIJ";
@@ -109,7 +109,10 @@ export default function GamePanel({ context, game, roster = [], now = Date.now()
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 400px", gap: 24, padding: "24px 32px" }}>
             <AllQuestions T={T} score={score} onOpen={setOpenCard} />
-            <Ranking T={T} ranking={score.ranking} average={score.average} nameOf={nameOf} answering={answering} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 24, minWidth: 0 }}>
+              {deck.opened_at && kinds.has("typed") ? <ApprovalStream T={T} game={game} nameOf={nameOf} on={on} /> : null}
+              <Ranking T={T} ranking={score.ranking} average={score.average} nameOf={nameOf} answering={answering} />
+            </div>
           </div>
         )}
       </div>
@@ -183,9 +186,78 @@ function AllQuestions({ T, score, onOpen }) {
   );
 }
 
+// The approval stream: typed answers that match no right answer, oldest first,
+// each approved or denied for every answer with the same words. Names are the
+// host's switch, remembered in this browser.
+const NAMES_KEY = "decks-stream-names";
+
+function ApprovalStream({ T, game, nameOf, on }) {
+  const s = styles(T);
+  const [names, setNames] = useState(() => { try { return localStorage.getItem(NAMES_KEY) === "1"; } catch { return false; } });
+  const [busy, setBusy] = useState(null);
+  const entries = approvalStream(game);
+  const recent = recentVerdicts(game);
+  const flipNames = () => setNames(v => { try { localStorage.setItem(NAMES_KEY, v ? "0" : "1"); } catch { /* private window */ } return !v; });
+  const decide = async (key, fn) => { setBusy(key); try { await fn(); } finally { setBusy(null); } };
+
+  return (
+    <div style={{ ...s.card, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 20px", boxShadow: `0 1px 0 ${T.line}` }}>
+        <span style={{ fontSize: SIZE.body, fontWeight: 600 }}>Approval stream</span>
+        <span style={{ fontFamily: T.mono, fontSize: SIZE.small, fontWeight: 600, padding: "1px 9px", borderRadius: 999, color: entries.length ? T.warn : T.faint, background: entries.length ? T.warnTint : T.panel2 }}>{entries.length}</span>
+        <label style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8, minHeight: HIT, fontSize: SIZE.micro, color: T.dim, cursor: "pointer" }}>
+          Names
+          <button type="button" role="switch" aria-checked={names} aria-label="Names" onClick={flipNames}
+            style={{ width: 36, height: 22, borderRadius: 999, border: "none", padding: 0, cursor: "pointer", position: "relative", background: names ? T.accent : T.ghost }}>
+            <span style={{ position: "absolute", top: 3, left: names ? 17 : 3, width: 16, height: 16, borderRadius: 999, background: "#ffffff" }} />
+          </button>
+        </label>
+      </div>
+
+      <div style={{ maxHeight: 440, overflowY: "auto" }}>
+        {entries.map(e => {
+          const key = e.cardId + "|" + norm(e.value);
+          return (
+            <div key={key} style={{ display: "flex", flexDirection: "column", gap: 6, padding: "12px 20px", boxShadow: `0 1px 0 ${T.line}`, opacity: busy === key ? 0.5 : 1 }}>
+              <span style={{ display: "flex", gap: 8, fontSize: SIZE.micro, color: T.faint, minWidth: 0 }}>
+                <span style={{ fontFamily: T.mono, flex: "none" }}>{e.n}</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.question}</span>
+              </span>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: SIZE.lead, fontWeight: 600, wordBreak: "break-word" }}>{e.value}</span>
+                {e.count > 1 ? <span style={{ fontFamily: T.mono, fontSize: SIZE.small, color: T.dim }}>×{e.count}</span> : null}
+              </span>
+              {e.closeTo !== null ? <span style={{ fontSize: SIZE.micro, fontWeight: 600, color: T.warn }}>Close to {e.closeTo}</span> : null}
+              {names ? <span style={{ fontSize: SIZE.micro, color: T.dim }}>{e.viewers.map(nameOf).join(", ")}</span> : null}
+              <span style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button type="button" style={s.ghost} disabled={!!busy} onClick={() => decide(key, () => on.deny?.(e.cardId, e.value))}>Deny</button>
+                <button type="button" style={s.solid} disabled={!!busy} onClick={() => decide(key, () => on.accept?.(e.cardId, e.value))}>Approve</button>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {recent.length ? (
+        <div style={{ background: T.panel2, padding: "10px 0 6px" }}>
+          <div style={{ padding: "0 20px 4px", fontSize: SIZE.micro, color: T.faint }}>Decided</div>
+          {recent.map(r => (
+            <div key={r.id} style={{ display: "grid", gridTemplateColumns: "20px minmax(0, 1fr) auto auto", alignItems: "center", gap: 8, minHeight: HIT, padding: "0 12px 0 20px" }}>
+              <span style={{ fontFamily: T.mono, fontSize: SIZE.micro, color: T.faint }}>{r.n}</span>
+              <span style={{ fontSize: SIZE.small, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.value}</span>
+              <span style={{ fontSize: SIZE.micro, fontWeight: 600, color: r.verdict === "approved" ? T.ok : T.late }}>{r.verdict === "approved" ? "Approved" : "Denied"}</span>
+              <button type="button" style={{ ...s.quiet, padding: "0 8px" }} disabled={!!busy} onClick={() => decide(r.id, () => on.undo?.(r.id))}>Undo</button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Ranking({ T, ranking, average, nameOf, answering }) {
   return (
-    <div style={{ background: T.panel, borderRadius: T.radiusLarge, boxShadow: `0 0 0 1px ${T.line}`, padding: "14px 0 10px", alignSelf: "start" }}>
+    <div style={{ background: T.panel, borderRadius: T.radiusLarge, boxShadow: `0 0 0 1px ${T.line}`, padding: "14px 0 10px", alignSelf: "start", width: "100%" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "0 20px 8px" }}>
         <span style={{ fontSize: SIZE.body, fontWeight: 600 }}>Scores</span>
         <span style={{ fontSize: SIZE.micro, color: T.faint }}>Right / answered</span>
@@ -235,7 +307,7 @@ function OneQuestion({ T, cards, card, score, game, nameOf, closed, onPick, onBa
   const qi = cards.findIndex(c => c.id === card.id);
   const q = score.questions.find(x => x.cardId === card.id);
   const correct = game.keys[card.id] || [];
-  const accepted = game.accepts.filter(a => a.card_id === card.id).map(a => a.value);
+  const accepted = game.accepts.filter(a => a.card_id === card.id && !isDenial(a.value)).map(a => a.value);
   const preview = pending ? previewAccept(game, card.id, pending.value) : null;
 
   const accept = async () => {
@@ -275,7 +347,7 @@ function OneQuestion({ T, cards, card, score, game, nameOf, closed, onPick, onBa
 
         {q.typed ? (
           <TypedAnswers T={T} q={q} correct={correct} accepted={accepted} nameOf={nameOf} game={game} card={card}
-            onAccept={(value) => setPending({ value, label: value })} />
+            onAccept={(value) => setPending({ value, label: value })} onUndo={(id) => on.undo?.(id)} />
         ) : (
           <ChoiceAnswers T={T} q={q} card={card} correct={correct} accepted={accepted}
             onAccept={(i) => setPending({ value: i, label: LETTERS[i] })} />
@@ -340,9 +412,11 @@ function ChoiceAnswers({ T, q, card, correct, accepted, onAccept }) {
   );
 }
 
-function TypedAnswers({ T, q, correct, accepted, nameOf, game, card, onAccept }) {
+function TypedAnswers({ T, q, correct, accepted, nameOf, game, card, onAccept, onUndo }) {
   const s = styles(T);
-  const groups = groupTyped(q.answers, correct, accepted);
+  const groups = groupTyped(q.answers.filter(a => !a.denied), correct, accepted);
+  // A denied answer shows with its denial, and Undo sends its words back to the stream.
+  const denialOf = (value) => game.accepts.find(a => a.card_id === card.id && isDenial(a.value) && norm(a.value.denied) === norm(value));
   const answeredBy = new Set(q.answers.map(a => a.viewerId));
   const silent = (game.teams.length ? game.teams.map(t => t.id) : []).filter(id => !answeredBy.has(id));
   const row = (a, kind) => (
@@ -350,7 +424,9 @@ function TypedAnswers({ T, q, correct, accepted, nameOf, game, card, onAccept })
       <span style={{ fontSize: SIZE.body }}>{String(a.value)}</span>
       <span style={{ fontSize: SIZE.small, color: T.dim, display: "flex", alignItems: "center", gap: 6 }}>{nameOf(a.viewerId)}{a.review ? <Tick color={T.warn} /> : null}</span>
       <span style={{ textAlign: "right" }}>
-        {kind === "right"
+        {kind === "denied"
+          ? <button type="button" style={s.quiet} onClick={() => { const d = denialOf(a.value); if (d) onUndo?.(d.id); }}>Undo</button>
+          : kind === "right"
           ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: SIZE.small, fontWeight: 600, color: T.ok }}><Tick size={16} color={T.ok} />Right</span>
           : <button type="button" style={kind === "close" ? s.solid : s.ghost} onClick={() => onAccept(a.value)}>Accept</button>}
       </span>
@@ -368,6 +444,7 @@ function TypedAnswers({ T, q, correct, accepted, nameOf, game, card, onAccept })
       {group(rightLabel || "Right", T.ok, T.okTint, groups.right.map(a => row(a, "right")), "right")}
       {groups.close.map(g => group(`Close to ${g.to}`, T.warn, T.warnTint, g.answers.map(a => row(a, "close")), `close-${g.to}`))}
       {group("Other answers", T.dim, T.panel2, groups.other.map(a => row(a, "other")), "other")}
+      {group("Denied", T.late, T.panel2, q.answers.filter(a => a.denied).map(a => row(a, "denied")), "denied")}
       {silent.length ? <div style={{ fontSize: SIZE.small, color: T.faint, padding: "0 4px" }}>{silent.map(nameOf).join(", ")}</div> : null}
     </div>
   );
@@ -480,6 +557,8 @@ export function GamePanelLive({ supabase, deckId, context, roster, theme, onScre
   const act = (fn) => async (...args) => { try { await fn(...args); await load(); } catch (e) { onError?.(e); } };
   const on = {
     accept: act((cardId, value) => acceptAnswer(supabase, { deckId, cardId, value })),
+    deny: act((cardId, value) => denyAnswer(supabase, { deckId, cardId, value })),
+    undo: act((id) => undoVerdict(supabase, { id })),
     close: act(() => closeGame(supabase, { deckId })),
     release: act((kind) => release(supabase, { deckId, kind })),
     extraTime: act((viewerId, minutes) => grantExtraTime(supabase, { deckId, viewerId, minutes })),

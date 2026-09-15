@@ -9,12 +9,12 @@ export { DEFAULT_THEME, SIZE, FLOOR, TAP, FONT_HREF, assertFloor, assertContrast
 export { default as QuizDeck, TeamStart } from "./games/QuizDeck.jsx";
 export { default as GameDeck } from "./games/GameDeck.jsx";
 export { default as GamePanel, GamePanelLive } from "./games/GamePanel.jsx";
-export { loadHostGame, listGames, createGame, saveGame, saveTeams, acceptAnswer, openGame, closeGame, release, grantExtraTime, watchGame } from "./games/host.js";
+export { loadHostGame, listGames, listGameStats, denyAnswer, undoVerdict, createGame, saveGame, saveTeams, acceptAnswer, openGame, closeGame, release, grantExtraTime, watchGame } from "./games/host.js";
 export { default as GameSetup, formFrom, toSave, problems } from "./games/GameSetup.jsx";
 export { default as GamesHome } from "./games/GamesHome.jsx";
 export { useOpenGames, GameStart, GamePlay, GamesNow, AGREEMENT } from "./games/GameInvite.jsx";
 export {
-  TOUGH_BELOW, norm, isRight, scoreGame, previewAccept, isClose, groupTyped,
+  TOUGH_BELOW, norm, isRight, scoreGame, previewAccept, isClose, groupTyped, approvalStream, recentVerdicts, isDenial,
   timeLeft, secondsLeft, spreadBuckets,
 } from "./games/score.js";
 export {

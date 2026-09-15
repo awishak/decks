@@ -12,10 +12,10 @@ import GamePanel from "../src/games/GamePanel.jsx";
 import GamesHome from "../src/games/GamesHome.jsx";
 import { formFrom, toSave, problems } from "../src/games/GameSetup.jsx";
 import { GameStart, GamesNow, AGREEMENT } from "../src/games/GameInvite.jsx";
-import { saveGame } from "../src/games/host.js";
+import { saveGame, denyAnswer, undoVerdict } from "../src/games/host.js";
 import {
   norm, isRight, scoreGame, previewAccept, groupTyped, isClose,
-  timeLeft, secondsLeft, spreadBuckets,
+  timeLeft, secondsLeft, spreadBuckets, approvalStream, recentVerdicts, isDenial,
 } from "../src/games/score.js";
 import { submitAnswer, startGame, loadGame, createTeam } from "../src/games/store.js";
 import { pendingDecks } from "../src/store.js";
@@ -94,6 +94,54 @@ async function main() {
   await check("libero: nothing right, nothing close", () => {
     const g = groupTyped(s7.questions[0].answers, keys7["w7-0"]);
     return g.right.length === 0 && g.close.length === 0;
+  });
+
+  console.log("\napproval stream, spring Week 7 Trivia");
+  const at = (n) => `2026-05-07T16:${String(10 + n).padStart(2, "0")}:00Z`;
+  const timed7 = responses7.map((r, n) => ({ ...r, answered_at: at(n) }));
+  const g7 = { cards: cards7, keys: keys7, accepts: [], responses: timed7 };
+  const stream = approvalStream(g7);
+  await check("answers that match no right answer wait, oldest first", () =>
+    stream.length > 0 && stream.every((e, i) => i === 0 || String(stream[i - 1].firstAt) <= String(e.firstAt)));
+  await check("a right answer never waits", () => !stream.some(e => /^(the stick|foosball)$/i.test(e.value)));
+  await check("Sticks waits, marked close to The stick", () => stream.find(e => e.value === "Sticks")?.closeTo === "The stick");
+  await check("waiting answers stay out of the percentage", () => {
+    const q = scoreGame(g7).questions[1];
+    return q.answered === 1 && q.right === 1 && q.pct === 100 && q.waiting === 5;
+  });
+  await check("the same words for the same question are one entry with a count", () => {
+    const twice = [...timed7, { card_id: "w7-1", viewer_id: "Another team", answer: { value: "lake  CROSS" }, answered_at: at(40) }];
+    const e = approvalStream({ ...g7, responses: twice }).find(x => norm(x.value) === "lake cross");
+    return e.count === 2 && e.viewers.length === 2;
+  });
+  await check("approving takes it out of the stream and counts it right", () => {
+    const g = { ...g7, accepts: [{ id: "a1", card_id: "w7-1", value: "Sticks", accepted_at: at(50) }] };
+    const q = scoreGame(g).questions[1];
+    return !approvalStream(g).some(e => e.value === "Sticks") && q.right === 2 && q.answered === 2;
+  });
+  await check("denying takes it out of the stream and counts it wrong", () => {
+    const g = { ...g7, accepts: [{ id: "d1", card_id: "w7-1", value: { denied: "Lake cross" }, accepted_at: at(51) }] };
+    const q = scoreGame(g).questions[1];
+    return !approvalStream(g).some(e => e.value === "Lake cross") && q.right === 1 && q.answered === 2;
+  });
+  await check("a denial never counts as right, however it is written", () =>
+    !isRight({ denied: "Lake cross" }, ["The stick"]) && isDenial({ denied: "x" }) && !isDenial("x"));
+  await check("decided answers list newest first, and undo brings an answer back", () => {
+    const accepts = [{ id: "a1", card_id: "w7-1", value: "Sticks", accepted_at: at(50) }, { id: "d1", card_id: "w7-1", value: { denied: "Lake cross" }, accepted_at: at(51) }];
+    const recent = recentVerdicts({ ...g7, accepts });
+    const undone = approvalStream({ ...g7, accepts: accepts.filter(a => a.id !== "d1") });
+    return eq(recent.map(r => [r.value, r.verdict]), [["Lake cross", "denied"], ["Sticks", "approved"]]) && undone.some(e => e.value === "Lake cross");
+  });
+  await check("the stream renders on the panel with Approve, Deny and the Names switch", () => {
+    const html = renderToString(<GamePanel game={{ deck: { id: "d", title: "Week 7 Trivia", teams: "phone", opened_at: at(0) }, ...g7, progress: [], teams: [], extra: [] }} />);
+    return /Approval stream/.test(html) && />Approve</.test(html) && />Deny</.test(html) && /Names/.test(html);
+  });
+  await check("deny and undo write one row each", async () => {
+    const sb = fakeSupabase({ tables: { deck_accepts: [] } });
+    const row = await denyAnswer(sb, { deckId: "d", cardId: "w7-1", value: "Lake cross" });
+    const denied = sb.tables.deck_accepts.length === 1 && sb.tables.deck_accepts[0].value.denied === "Lake cross";
+    await undoVerdict(sb, { id: row.id });
+    return denied && sb.tables.deck_accepts.length === 0;
   });
 
   console.log("\ntime");
