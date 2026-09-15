@@ -9,7 +9,10 @@
 //
 // The table answers what Andrew asked of each game: how many questions, when it
 // last ran, did everyone take it, what the average was, and where it sits in the
-// day plan (`places`, from the host app, which knows its day plans).
+// day plan (`places`, from the host app, which knows its day plans). A game's
+// name and its day plan row rarely match word for word ("Week 1" against
+// "Weekly Game, week 1"), so `dayLink` lets the host pick the row outright:
+//   dayLink = { options: [{ key, label }], value: deck => key, onChange: (deck, key) => void }
 //
 // Where you are is kept in the address (#game=<id>, #game=<id>&edit), so a
 // reload in the middle of class comes back to the game that is running.
@@ -35,7 +38,7 @@ const writeHash = (game, edit) => {
 export const statusOf = (d) => (d.closed_at ? "Closed" : d.opened_at ? "Open" : "Draft");
 const dayOf = (iso) => (iso ? new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "");
 
-export default function GamesHome({ supabase, groupKey, context, roster = [], theme, onScreen, onError, onGame, places }) {
+export default function GamesHome({ supabase, groupKey, context, roster = [], theme, onScreen, onError, onGame, places, dayLink }) {
   const T = useMemo(() => ({ ...DEFAULT_THEME, ...theme }), [theme]);
   const [where, setWhere] = useState(readHash);
   const [games, setGames] = useState(null);
@@ -79,7 +82,7 @@ export default function GamesHome({ supabase, groupKey, context, roster = [], th
     main = <GamePanelLive key={where.game} supabase={supabase} deckId={where.game} context={context} roster={roster} theme={theme}
       onScreen={onScreen} onError={onError} onBack={() => go(null)} onEdit={() => go(where.game, true)} onChange={onGame} />;
   } else {
-    const cols = "minmax(0, 1fr) 90px 130px 110px 90px minmax(120px, 200px) 80px";
+    const cols = "minmax(0, 1fr) 90px 130px 110px 90px minmax(180px, 280px) 80px";
     main = (
       <div style={{ minHeight: "100vh" }}>
         <div style={{ padding: "20px 32px", background: T.panel, boxShadow: `0 1px 0 ${T.line}`, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -109,7 +112,17 @@ export default function GamesHome({ supabase, groupKey, context, roster = [], th
                     {stats ? (d.opened_at ? (of ? `${d.finished} / ${of}` : d.finished) : "·") : ""}
                   </span>
                   <span style={{ fontFamily: T.mono, textAlign: "right" }}>{stats ? (d.average === null || d.average === undefined ? "·" : `${d.average}%`) : ""}</span>
-                  <span style={{ color: spots.length ? T.text : T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{spots.length ? spots.join(", ") : "·"}</span>
+                  {dayLink ? (
+                    <select value={dayLink.value(d) || ""} aria-label={`Day plan for ${d.title}`}
+                      onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}
+                      onChange={e => dayLink.onChange(d, e.target.value)}
+                      style={{ minWidth: 0, width: "100%", minHeight: HIT, padding: "0 8px", borderRadius: 8, border: "none", boxShadow: `inset 0 0 0 1px ${T.line}`, background: T.panel, color: spots.length ? T.text : T.dim, fontFamily: T.font, fontSize: SIZE.small, cursor: "pointer" }}>
+                      <option value="">{spots.length ? spots.join(", ") : "·"}</option>
+                      {dayLink.options.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+                    </select>
+                  ) : (
+                    <span style={{ color: spots.length ? T.text : T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{spots.length ? spots.join(", ") : "·"}</span>
+                  )}
                   <span style={{ justifySelf: "end" }}><Status d={d} /></span>
                 </div>
               );
