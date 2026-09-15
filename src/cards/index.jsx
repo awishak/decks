@@ -13,9 +13,12 @@ const Head = ({ children, T }) => (
   </div>
 );
 
+// pre-wrap so a body written with paragraphs keeps them. Card text is authored
+// as plain text in the database and a blank line is the only paragraph break an
+// author has; without this they all ran together into one block.
 const Body = ({ children, T }) => (
   <div style={{ fontFamily: T.font, fontSize: SIZE.body, lineHeight: 1.45,
-    maxWidth: 460, color: T.dim }}>{children}</div>
+    maxWidth: 460, color: T.dim, whiteSpace: "pre-wrap" }}>{children}</div>
 );
 
 function Choice({ label, selected, onClick, T }) {
