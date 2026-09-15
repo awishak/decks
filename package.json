@@ -1,6 +1,6 @@
 {
   "name": "@ishak/decks",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Full-screen cards that block a site until the viewer has read them and answered what you asked.",
   "type": "module",
   "main": "./dist/decks.js",
@@ -13,7 +13,11 @@
     },
     "./migrations/*": "./migrations/*"
   },
-  "files": ["dist", "migrations", "BRIEF.md"],
+  "files": [
+    "dist",
+    "migrations",
+    "BRIEF.md"
+  ],
   "scripts": {
     "build": "vite build",
     "prepare": "vite build",
