@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from "react";
 import QuizDeck, { TeamStart } from "./QuizDeck.jsx";
 import { loadGame, startGame, submitAnswer, moveTo, finishGame, createTeam } from "./store.js";
+import { watchGame } from "./host.js";
 import { DEFAULT_THEME, SIZE } from "../tokens.js";
 
 export default function GameDeck({ supabase, deckId, viewer, roster = [], theme, onError }) {
@@ -36,6 +37,20 @@ export default function GameDeck({ supabase, deckId, viewer, roster = [], theme,
   }, [supabase, deckId, viewer?.id, onError]);
 
   useEffect(() => { if (supabase && viewer?.id) load(); }, [load, supabase, viewer?.id]);
+
+  // When the host closes the game, a phone sitting on a question goes to done
+  // without waiting for its next Submit to be refused.
+  const letIn = !!game?.extra;
+  useEffect(() => {
+    if (!supabase || state !== "ready" || over || letIn) return undefined;
+    return watchGame(supabase, {
+      deckId,
+      onChange: async () => {
+        const res = await supabase.from("decks").select("closed_at").eq("id", deckId);
+        if (res.data?.[0]?.closed_at) setOver(true);
+      },
+    });
+  }, [supabase, deckId, state, over, letIn]);
 
   const onSubmit = useCallback(async (card, value, review) => {
     try {

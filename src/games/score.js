@@ -56,6 +56,8 @@ export function scoreGame({ cards = [], keys = {}, accepts = [], responses = [] 
     const q = {
       cardId: card.id, key: card.key, text: card.config?.text || "", typed,
       answered: rows.length, right: 0, pct: 0, tough: false, reviews: 0,
+      // Which options count as right, by the key or accepted since: the panel colours these.
+      correct: typed ? [] : [...(keys[card.id] || []), ...(acceptedFor[card.id] || [])].filter(Number.isInteger),
       counts: typed ? [] : options.map(() => 0),
       reviewBy: typed ? [] : options.map(() => 0),
       answers: typed ? [] : undefined,

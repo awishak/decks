@@ -3,41 +3,27 @@
 // through the same store functions a class site uses.
 //
 //   npm run dev            then open the address it prints
-//   ?game=week1            Week 1, multiple choice, 20 minutes (the default)
-//   ?game=week7            Week 7 Trivia, typed, a team phone names its team
+//   /dev/                  Week 1, multiple choice, 20 minutes (the default)
+//   /dev/?game=week7       Week 7 Trivia, typed, a team phone names its team
+//   /dev/panel.html        the game panel, with a pretend class and this phone beside it
 //
-// Reload to start over.
+// Inside the panel page, the phone uses the panel's world, so its answers land
+// in the rows the panel is watching. Reload to start over.
 
 import { createRoot } from "react-dom/client";
 import GameDeck from "../src/games/GameDeck.jsx";
-import { fakeSupabase } from "../scripts/fake-supabase.js";
-import { week1, week7 } from "../scripts/fixtures/spring.js";
+import { makeWorld, ME } from "./world.js";
 
 const which = new URLSearchParams(location.search).get("game") === "week7" ? "week7" : "week1";
-const me = { id: "you@scu.edu", name: "You" };
+let shared = null;
+try { shared = window.parent !== window ? window.parent.previewWorld : null; } catch { shared = null; }
+const world = shared || makeWorld(which);
+window.previewTables = world.sb.tables;   // look in the console: every saved answer is its own row
 
-const decks = {
-  week1: {
-    deck: { id: "week1", title: week1.title, kind: "game", teams: "none", time_limit_min: 20, opened_at: new Date().toISOString() },
-    cards: week1.questions.map((q, i) => ({ id: `w1-${i}`, key: `q${i + 1}`, type: "question", position: i, deck_id: "week1",
-      config: { text: q.text, answer: "choice", options: q.options } })),
-  },
-  week7: {
-    deck: { id: "week7", title: week7.title, kind: "game", teams: "phone", time_limit_min: null, opened_at: new Date().toISOString() },
-    cards: week7.questions.map((q, i) => ({ id: `w7-${i}`, key: `t${i + 1}`, type: "question", position: i, deck_id: "week7",
-      config: { text: q.text, answer: "typed" } })),
-  },
-};
-
-const { deck, cards } = decks[which];
-const sb = fakeSupabase({
-  tables: { decks: [deck], deck_cards: cards, deck_responses: [], deck_progress: [], deck_teams: [], deck_extra_time: [] },
-  unique: { deck_responses: ["card_id", "viewer_id"] },
-});
-window.previewTables = sb.tables;   // look in the console: every saved answer is its own row
-
-const roster = [me, { id: "f@scu.edu", name: "Teammate one" }, { id: "g@scu.edu", name: "Teammate two" }];
+const roster = which === "week7"
+  ? [ME, { id: "f@scu.edu", name: "Teammate one" }, { id: "g@scu.edu", name: "Teammate two" }]
+  : world.roster;
 
 createRoot(document.getElementById("root")).render(
-  <GameDeck supabase={sb} deckId={deck.id} viewer={me} roster={roster} onError={e => console.error(e)} />,
+  <GameDeck supabase={world.sb} deckId={world.deckId} viewer={ME} roster={roster} onError={e => console.error(e)} />,
 );

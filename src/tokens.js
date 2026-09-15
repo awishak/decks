@@ -37,6 +37,8 @@ export const DEFAULT_THEME = {
   accentTint: "#fdf2f4",
   ok: "#0f766e",       // state.ok
   okTint: "#ecf6f4",
+  warn: "#b45309",     // state.warn: a tough question, an answer waiting on a tap
+  warnTint: "#fdf5ea",
   late: "#c81e1e",     // state.late
   font: "'Outfit', -apple-system, BlinkMacSystemFont, sans-serif",
   mono: "'IBM Plex Mono', ui-monospace, monospace",
@@ -78,10 +80,11 @@ export const contrast = (a, b) => {
 
 /** Throws on any text colour under 4.5:1 against a surface it sits on. */
 export function assertContrast(T = DEFAULT_THEME) {
-  const surfaces = { bg: T.bg, panel: T.panel, panel2: T.panel2, accentTint: T.accentTint, okTint: T.okTint };
+  const surfaces = { bg: T.bg, panel: T.panel, panel2: T.panel2, accentTint: T.accentTint, okTint: T.okTint, warnTint: T.warnTint };
   const pairs = [
     ...["text", "dim", "faint", "accent"].flatMap(c => Object.keys(surfaces).map(s => [c, s])),
     ["ok", "panel"], ["ok", "okTint"], ["ok", "bg"], ["late", "panel"], ["late", "bg"],
+    ["warn", "panel"], ["warn", "bg"], ["warn", "panel2"], ["warn", "warnTint"],
   ];
   const bad = pairs
     .map(([c, s]) => [c, s, contrast(T[c], surfaces[s])])

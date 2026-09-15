@@ -8,6 +8,7 @@
 import { renderToString } from "react-dom/server";
 import QuizDeck, { TeamStart } from "../src/games/QuizDeck.jsx";
 import GameDeck from "../src/games/GameDeck.jsx";
+import GamePanel from "../src/games/GamePanel.jsx";
 import {
   norm, isRight, scoreGame, previewAccept, groupTyped, isClose,
   timeLeft, secondsLeft, spreadBuckets,
@@ -179,6 +180,24 @@ async function main() {
   await check("out of time goes to done", () => !/Submit/.test(html["out of time"]) && html["out of time"].includes("Week 1"));
   await check("GameDeck renders while loading", () => typeof renderToString(
     <GameDeck supabase={fakeSupabase()} deckId="d" viewer={{ id: "s01@scu.edu" }} />) === "string");
+  console.log("\ngame panel");
+  const hostGame = { deck: { id: "d", title: "Week 1", teams: "none", time_limit_min: 20, opened_at: "2026-09-14T10:00:00Z" },
+    cards: cards1, keys: keys1, accepts: [], responses: responses1, progress: [{ viewer_id: "s01", completed_at: null }], teams: [], extra: [] };
+  const roster = [...new Set(responses1.map(r => r.viewer_id)), "s29"].map(id => ({ id, name: id }));
+  const panels = {
+    live: renderToString(<GamePanel context="COMM 118" game={hostGame} roster={roster} now={Date.parse("2026-09-14T10:07:00Z")} />),
+    closed: renderToString(<GamePanel game={{ ...hostGame, deck: { ...hostGame.deck, closed_at: "2026-09-14T10:20:00Z" } }} roster={roster} />),
+  };
+  await check("the live panel shows every question, the ranking and time left", () =>
+    /All questions/.test(panels.live) && /Ranking/.test(panels.live) && panels.live.includes("13 min") && /46<!-- -->%|46%/.test(panels.live));
+  await check("a closed game offers release, take it later and the room screen", () =>
+    /Release scores/.test(panels.closed) && /Take it later/.test(panels.closed) && /Put on screen/.test(panels.closed) && !/Answering/.test(panels.closed));
+  await check(`nothing on the panel is under ${FLOOR}px`, () => {
+    const low = Object.entries(panels).map(([n, h]) => [n, smallest(h)]).filter(([, px]) => px < FLOOR);
+    if (low.length) throw new Error(JSON.stringify(low));
+    return true;
+  });
+
   await check("the default theme is the design system's", () => DEFAULT_THEME.font.startsWith("'Outfit'") && DEFAULT_THEME.text === "#1c1917");
 }
 

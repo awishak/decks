@@ -8,6 +8,8 @@ export { DEFAULT_THEME, SIZE, FLOOR, TAP, FONT_HREF, assertFloor, assertContrast
 // Games: a quiz or trivia game is a deck. See GAMES.md.
 export { default as QuizDeck, TeamStart } from "./games/QuizDeck.jsx";
 export { default as GameDeck } from "./games/GameDeck.jsx";
+export { default as GamePanel, GamePanelLive } from "./games/GamePanel.jsx";
+export { loadHostGame, acceptAnswer, openGame, closeGame, release, grantExtraTime, watchGame } from "./games/host.js";
 export {
   TOUGH_BELOW, norm, isRight, scoreGame, previewAccept, isClose, groupTyped,
   timeLeft, secondsLeft, spreadBuckets,

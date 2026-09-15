@@ -191,6 +191,19 @@ preview at `/dev/` with Week 1 or `?game=week7`, running GameDeck against the
 fake client. Words on the phone that Andrew has not written yet: "Not saved.
 Submit again.", "Team name", "Start", "Not saved. Start again."
 
+**The game panel, built 2026-09-14.** `src/games/GamePanel.jsx` and `host.js`
+live in decks rather than classes, so encore and f5 get the same panel; classes
+mounts `GamePanelLive` behind More → Games. All questions and the ranking update
+live (realtime, or polling on the preview's fake client); clicking a question
+shows picked and Please review per answer, with Accept and its preview; typed
+answers are grouped right, close, other; Close confirms; after closing:
+Release, Take it later, and Put on screen. A phone sitting on a question goes
+to done when the game closes. Not built yet: adding and editing a game (the
+panel's "before" screen) and the room screen slides. Preview:
+`/dev/panel.html` (and `?game=week7`, `&speed=3`), with a pretend class of 28
+answering Week 1 with its real spring answers and your phone beside it. Words
+Andrew has not written yet: "Let in", "min", "Released", "Mixed", "Cancel".
+
 **How apps get decks (decided 2026-09-14).** The decks repo is public, and each
 app installs it from GitHub pinned to a version tag:
 `npm i git+https://github.com/awishak/decks.git#v0.1.0`. npm runs `prepare`
