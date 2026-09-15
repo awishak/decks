@@ -19,11 +19,13 @@
     "BRIEF.md"
   ],
   "scripts": {
-    "build": "vite build",
+    "build": "npm test && vite build",
     "prepare": "vite build",
+    "dev": "vite dev --port 5190 --strictPort",
     "types": "tsc -p jsconfig.json",
     "smoke": "esbuild scripts/smoke.jsx --bundle --platform=node --format=cjs --outfile=node_modules/.cache/smoke.cjs --loader:.jsx=jsx --jsx=automatic --log-level=error && node node_modules/.cache/smoke.cjs",
-    "test": "npm run smoke"
+    "smoke:games": "esbuild scripts/smoke-games.jsx --bundle --platform=node --format=cjs --outfile=node_modules/.cache/smoke-games.cjs --loader:.jsx=jsx --loader:.js=jsx --jsx=automatic --log-level=error && node node_modules/.cache/smoke-games.cjs",
+    "test": "npm run smoke && npm run smoke:games"
   },
   "peerDependencies": {
     "react": ">=18",

@@ -6,9 +6,14 @@
 //
 // Queries are thenable, because supabase-js is awaited directly rather than
 // having an .execute().
+//
+// Inserts land in the table they name, so a test can fire writes at the same
+// moment and count what arrived. `unique` names the columns that must not
+// repeat per table, the way Postgres's unique constraints refuse a second row.
 
-export function fakeSupabase({ tables = {}, writeReturnsNothing = false, failOn = null } = {}) {
+export function fakeSupabase({ tables = {}, writeReturnsNothing = false, failOn = null, unique = {} } = {}) {
   const calls = [];
+  const store = tables;
 
   const apply = (rows, filters) => filters.reduce((acc, f) => {
     const [op, k, v, w] = f;
@@ -30,12 +35,33 @@ export function fakeSupabase({ tables = {}, writeReturnsNothing = false, failOn 
       or() { return q; },
       order() { return q; },
       then(resolve) {
-        calls.push({ table, op, filters, payload });
-        if (failOn === table) return resolve({ data: null, error: { message: "boom" } });
-        if (op === "upsert") {
-          return resolve({ data: writeReturnsNothing ? [] : [payload], error: null });
-        }
-        return resolve({ data: apply(tables[table] || [], filters), error: null });
+        // A tick before answering, as a network call would, so writes started
+        // together really do overlap.
+        return Promise.resolve().then(() => {
+          calls.push({ table, op, filters, payload });
+          if (failOn === table) return resolve({ data: null, error: { message: "boom" } });
+          if (op === "upsert") {
+            return resolve({ data: writeReturnsNothing ? [] : [payload], error: null });
+          }
+          if (op === "insert") {
+            if (writeReturnsNothing) return resolve({ data: [], error: null });
+            const rows = (store[table] ||= []);
+            const cols = unique[table];
+            if (cols && rows.some(r => cols.every(c => r[c] === payload[c]))) {
+              return resolve({ data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } });
+            }
+            const row = { id: `${table}-${rows.length + 1}`, started_at: new Date().toISOString(), ...payload };
+            rows.push(row);
+            return resolve({ data: [row], error: null });
+          }
+          if (op === "update") {
+            if (writeReturnsNothing) return resolve({ data: [], error: null });
+            const hit = apply(store[table] || [], filters);
+            hit.forEach(r => Object.assign(r, payload));
+            return resolve({ data: hit, error: null });
+          }
+          return resolve({ data: apply(store[table] || [], filters), error: null });
+        });
       },
     };
     return q;
@@ -43,9 +69,12 @@ export function fakeSupabase({ tables = {}, writeReturnsNothing = false, failOn 
 
   return {
     calls,
+    tables: store,
     from: (table) => ({
       select: () => query(table, "select"),
       upsert: (payload) => query(table, "upsert", payload),
+      insert: (payload) => query(table, "insert", payload),
+      update: (payload) => query(table, "update", payload),
     }),
   };
 }

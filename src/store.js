@@ -42,7 +42,7 @@ export async function pendingDecks(sb, { viewerId, groups, now = new Date() }) {
   if (!groups?.length) return [];
   const iso = now.toISOString();
 
-  const decks = must(
+  const decks = (must(
     await sb.from(T.decks).select("*")
       .eq("published", true)
       .in("group_key", groups)
@@ -50,7 +50,7 @@ export async function pendingDecks(sb, { viewerId, groups, now = new Date() }) {
       .or(`ends_at.is.null,ends_at.gte.${iso}`)
       .order("created_at", { ascending: true }),
     "pendingDecks/decks",
-  ) || [];
+  ) || []).filter(d => (d.kind || "gate") === "gate");   // a game sits on the page; it never blocks the site
 
   if (!decks.length) return [];
 

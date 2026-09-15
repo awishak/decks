@@ -182,6 +182,15 @@ else, no changing a submitted answer, keys hidden until release, closing, time
 limits, extra time, team phones). A student's viewer id is their lowercased
 sign-in email.
 
+**Steps 2 and 3 built, 2026-09-14.** `src/games/score.js`, `store.js`,
+`QuizDeck.jsx` (with `TeamStart`) and `GameDeck.jsx`. 42 checks in
+`scripts/smoke-games.jsx` run in `npm test` and in `npm run build`, scored
+against real spring answers in `scripts/fixtures/spring.js` (students
+anonymised). `tokens.js` is now the design system. `npm run dev` opens a local
+preview at `/dev/` with Week 1 or `?game=week7`, running GameDeck against the
+fake client. Words on the phone that Andrew has not written yet: "Not saved.
+Submit again.", "Team name", "Start", "Not saved. Start again."
+
 **How apps get decks (decided 2026-09-14).** The decks repo is public, and each
 app installs it from GitHub pinned to a version tag:
 `npm i git+https://github.com/awishak/decks.git#v0.1.0`. npm runs `prepare`
