@@ -175,7 +175,7 @@ until the new one has run a class, and is removed only when he says.
 3. **Old answers.** Step 7 moves the spring answers too, for history (decided
    2026-09-14).
 
-**Status, 2026-09-14.** Migrations `003_games.sql` and `004_signed_in_rls.sql`
+**Status, 2026-09-14.** Migrations 001 to 004 ran on the classes Supabase project (9 tables, 21 policies, 2 hosts). `003_games.sql` and `004_signed_in_rls.sql`
 are written and pass 21 checks in a local Postgres with Supabase's sign-in
 stubbed (two students answering at once both land, no answering as someone
 else, no changing a submitted answer, keys hidden until release, closing, time
