@@ -17,7 +17,7 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { DEFAULT_THEME, SIZE } from "../tokens.js";
 import { scoreGame, previewAccept, groupTyped, spreadBuckets, timeLeft } from "./score.js";
-import { loadHostGame, watchGame, acceptAnswer, closeGame, release, grantExtraTime } from "./host.js";
+import { loadHostGame, watchGame, acceptAnswer, openGame, closeGame, release, grantExtraTime } from "./host.js";
 
 const LETTERS = "ABCDEFGHIJ";
 const HIT = 34;   // an instructor surface: a trackpad under your hands
@@ -68,19 +68,28 @@ export default function GamePanel({ context, game, roster = [], now = Date.now()
         {/* Header: the game, and the numbers that matter while it runs. */}
         <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "20px 32px", background: T.panel, boxShadow: `0 1px 0 ${T.line}`, position: "relative" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-            {context ? <span style={{ fontSize: SIZE.micro, color: T.faint }}>{context}</span> : null}
+            {on.back
+              ? <button type="button" onClick={() => on.back()} style={{ ...s.quiet, padding: 0, justifyContent: "flex-start", fontSize: SIZE.micro }}>{context ? `${context} · Games` : "Games"}</button>
+              : context ? <span style={{ fontSize: SIZE.micro, color: T.faint }}>{context}</span> : null}
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: SIZE.head, fontWeight: 600, letterSpacing: "-0.01em" }}>{deck.title}</span>
               {tags.map(t => <span key={t} style={s.tag}>{t}</span>)}
             </div>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 32 }}>
+            {!deck.opened_at ? (
+              <>
+                {on.edit ? <button type="button" style={s.ghost} onClick={() => on.edit()}>Edit</button> : null}
+                <button type="button" style={s.solid} onClick={() => on.open?.()}>Open</button>
+              </>
+            ) : null}
+            {!closed && deck.opened_at && on.screen ? <button type="button" style={s.ghost} onClick={() => on.screen({ view: "during" })}>Put on screen</button> : null}
             {!closed && ends ? <Stat T={T} label="Time left" value={timeLeft((ends - now) / 1000)} /> : null}
             <Stat T={T} label="Submitted" value={teamGame ? `${submitted} / ${teams.length}` : submitted} />
             {!closed ? <Stat T={T} label="Answering" value={answering.size} color={T.ok} /> : null}
             {!closed && !teamGame ? <Stat T={T} label="Not started" value={notStarted.length} /> : null}
             {closed ? <Stat T={T} label="Class average" value={`${score.average}%`} /> : null}
-            {!closed ? <button type="button" style={s.ghost} onClick={() => setConfirmClose(true)}>Close</button> : null}
+            {!closed && deck.opened_at ? <button type="button" style={s.ghost} onClick={() => setConfirmClose(true)}>Close</button> : null}
           </div>
           {confirmClose ? (
             <CloseConfirm T={T} title={deck.title} submitted={submitted} answering={answering.size} notStarted={notStarted.length} teamGame={teamGame}
@@ -99,7 +108,7 @@ export default function GamePanel({ context, game, roster = [], now = Date.now()
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 400px", gap: 24, padding: "24px 32px" }}>
             <AllQuestions T={T} score={score} onOpen={setOpenCard} />
-            <Ranking T={T} ranking={score.ranking} nameOf={nameOf} answering={answering} />
+            <Ranking T={T} ranking={score.ranking} average={score.average} nameOf={nameOf} answering={answering} />
           </div>
         )}
       </div>
@@ -173,12 +182,18 @@ function AllQuestions({ T, score, onOpen }) {
   );
 }
 
-function Ranking({ T, ranking, nameOf, answering }) {
+function Ranking({ T, ranking, average, nameOf, answering }) {
   return (
     <div style={{ background: T.panel, borderRadius: T.radiusLarge, boxShadow: `0 0 0 1px ${T.line}`, padding: "14px 0 10px", alignSelf: "start" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "0 20px 8px" }}>
-        <span style={{ fontSize: SIZE.body, fontWeight: 600 }}>Ranking</span>
+        <span style={{ fontSize: SIZE.body, fontWeight: 600 }}>Scores</span>
         <span style={{ fontSize: SIZE.micro, color: T.faint }}>Right / answered</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) 64px 48px", alignItems: "center", gap: 12, minHeight: 36, padding: "0 20px", margin: "0 0 6px", background: T.panel2 }}>
+        <span />
+        <span style={{ fontSize: SIZE.small, fontWeight: 600 }}>Average</span>
+        <span />
+        <span style={{ fontFamily: T.mono, fontSize: SIZE.small, fontWeight: 600, textAlign: "right" }}>{ranking.length ? `${average}%` : "·"}</span>
       </div>
       {ranking.map((v, i) => (
         <div key={v.viewerId} style={{ display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) 64px 48px", alignItems: "center", gap: 12, minHeight: 28, padding: "0 20px" }}>
@@ -289,12 +304,13 @@ function OneQuestion({ T, cards, card, score, game, nameOf, closed, onPick, onBa
 
 function ChoiceAnswers({ T, q, card, correct, accepted, onAccept }) {
   const s = styles(T);
-  const cols = "28px minmax(0, 1fr) 120px 32px 44px 104px";
+  // The answer's words get the width; its bar sits under them.
+  const cols = "28px minmax(0, 1fr) 48px 44px 104px";
   const n = q.counts.reduce((a, b) => a + b, 0) || 1;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ display: "grid", gridTemplateColumns: cols, gap: 16, padding: "0 20px", fontSize: SIZE.micro, color: T.faint }}>
-        <span /><span /><span /><span style={{ textAlign: "right" }}>Picked</span>
+        <span /><span /><span style={{ textAlign: "right" }}>Picked</span>
         <span style={{ display: "flex", justifyContent: "flex-end" }} title="Please review"><Tick color={T.faint} /></span><span />
       </div>
       {(card.config?.options || []).map((o, i) => {
@@ -303,10 +319,12 @@ function ChoiceAnswers({ T, q, card, correct, accepted, onAccept }) {
         return (
           <div key={i} style={{ display: "grid", gridTemplateColumns: cols, alignItems: "center", gap: 16, minHeight: 64, padding: "10px 20px", borderRadius: T.radius, background: T.panel, boxShadow: `inset 0 0 0 1px ${right ? T.ok : T.line}` }}>
             <span style={{ fontFamily: T.mono, fontSize: SIZE.body, color: right ? T.ok : T.faint }}>{LETTERS[i]}</span>
-            <span style={{ fontSize: SIZE.body, lineHeight: 1.35 }}>{o}</span>
-            <div style={{ height: 12, borderRadius: 999, background: T.panel2 }}>
-              <div style={{ width: `${(100 * q.counts[i]) / n}%`, height: 12, borderRadius: 999, background: right ? T.ok : T.ghost }} />
-            </div>
+            <span style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+              <span style={{ fontSize: SIZE.body, lineHeight: 1.35 }}>{o}</span>
+              <span style={{ display: "block", height: 10, borderRadius: 999, background: T.panel2 }}>
+                <span style={{ display: "block", width: `${(100 * q.counts[i]) / n}%`, height: 10, borderRadius: 999, background: right ? T.ok : T.ghost }} />
+              </span>
+            </span>
             <span style={{ fontFamily: T.mono, fontSize: SIZE.body, textAlign: "right" }}>{q.counts[i]}</span>
             <span style={{ textAlign: "right" }}><ReviewCount T={T} n={q.reviewBy[i]} /></span>
             <span style={{ textAlign: "right" }}>
@@ -426,6 +444,12 @@ function AfterClose({ T, deck, score, notStarted, extra, nameOf, on }) {
           <span style={{ fontSize: SIZE.body, fontWeight: 600 }}>All questions</span>
           <button type="button" style={s.ghost} onClick={() => on.screen?.({ view: "questions" })}>Put on screen</button>
         </div>
+        {deck.teams && deck.teams !== "none" ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 16, marginTop: 14, boxShadow: `0 -1px 0 ${T.line}` }}>
+            <span style={{ fontSize: SIZE.body, fontWeight: 600 }}>Teams</span>
+            <button type="button" style={s.ghost} onClick={() => on.screen?.({ view: "teams" })}>Put on screen</button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -435,14 +459,14 @@ function AfterClose({ T, deck, score, notStarted, extra, nameOf, on }) {
  * The panel wired to the database: loads the game, redraws as answers arrive
  * (realtime, or polling on a client without it), and writes each action.
  */
-export function GamePanelLive({ supabase, deckId, context, roster, theme, onScreen, onError }) {
+export function GamePanelLive({ supabase, deckId, context, roster, theme, onScreen, onError, onBack, onEdit, onChange }) {
   const [game, setGame] = useState(null);
   const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
-    try { const g = await loadHostGame(supabase, { deckId }); if (g) setGame(g); }
+    try { const g = await loadHostGame(supabase, { deckId }); if (g) { setGame(g); onChange?.(g); } }
     catch (e) { onError?.(e); }
-  }, [supabase, deckId, onError]);
+  }, [supabase, deckId, onError, onChange]);
 
   useEffect(() => {
     if (!supabase) return undefined;
@@ -458,7 +482,10 @@ export function GamePanelLive({ supabase, deckId, context, roster, theme, onScre
     close: act(() => closeGame(supabase, { deckId })),
     release: act((kind) => release(supabase, { deckId, kind })),
     extraTime: act((viewerId, minutes) => grantExtraTime(supabase, { deckId, viewerId, minutes })),
-    screen: (view) => onScreen?.(view, game),
+    open: act(() => openGame(supabase, { deckId })),
+    screen: onScreen ? (view) => onScreen(view, game) : undefined,
+    back: onBack,
+    edit: onEdit && !(game?.responses?.length) ? onEdit : undefined,
   };
 
   const T = { ...DEFAULT_THEME, ...theme };

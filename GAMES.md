@@ -201,7 +201,7 @@ Release, Take it later, and Put on screen. A phone sitting on a question goes
 to done when the game closes. Not built yet: adding and editing a game (the
 panel's "before" screen) and the room screen slides. Preview:
 `/dev/panel.html` (and `?game=week7`, `&speed=3`), with a pretend class of 28
-answering Week 1 with its real spring answers and your phone beside it. Words
+answering Week 1 with its real spring answers and your phone beside it. Adding and editing games (GameSetup), the games list (GamesHome), and the student card with the agreement box (GameInvite) followed the same day. Words
 Andrew has not written yet: "Let in", "min", "Released", "Mixed", "Cancel".
 
 **How apps get decks (decided 2026-09-14).** The decks repo is public, and each

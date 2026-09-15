@@ -41,7 +41,20 @@ export function fakeSupabase({ tables = {}, writeReturnsNothing = false, failOn 
           calls.push({ table, op, filters, payload });
           if (failOn === table) return resolve({ data: null, error: { message: "boom" } });
           if (op === "upsert") {
-            return resolve({ data: writeReturnsNothing ? [] : [payload], error: null });
+            if (writeReturnsNothing) return resolve({ data: [], error: null });
+            // Kept only when the caller names what makes a row the same row.
+            if (q.onConflict) {
+              const rows = (store[table] ||= []);
+              const cols = q.onConflict.split(",");
+              const hit = rows.find(r => cols.every(c => r[c] === payload[c]));
+              if (hit) Object.assign(hit, payload); else rows.push({ ...payload });
+            }
+            return resolve({ data: [payload], error: null });
+          }
+          if (op === "delete") {
+            const hit = apply(store[table] || [], filters);
+            store[table] = (store[table] || []).filter(r => !hit.includes(r));
+            return resolve({ data: hit, error: null });
           }
           if (op === "insert") {
             if (writeReturnsNothing) return resolve({ data: [], error: null });
@@ -72,7 +85,8 @@ export function fakeSupabase({ tables = {}, writeReturnsNothing = false, failOn 
     tables: store,
     from: (table) => ({
       select: () => query(table, "select"),
-      upsert: (payload) => query(table, "upsert", payload),
+      upsert: (payload, opts) => Object.assign(query(table, "upsert", payload), { onConflict: opts?.onConflict }),
+      delete: () => query(table, "delete"),
       insert: (payload) => query(table, "insert", payload),
       update: (payload) => query(table, "update", payload),
     }),

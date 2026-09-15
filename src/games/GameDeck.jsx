@@ -12,7 +12,7 @@ import { loadGame, startGame, submitAnswer, moveTo, finishGame, createTeam } fro
 import { watchGame } from "./host.js";
 import { DEFAULT_THEME, SIZE } from "../tokens.js";
 
-export default function GameDeck({ supabase, deckId, viewer, roster = [], theme, onError }) {
+export default function GameDeck({ supabase, deckId, viewer, roster = [], theme, onError, onExit }) {
   const [game, setGame] = useState(null);      // what loadGame returns
   const [state, setState] = useState("loading"); // loading | ready | missing
   const [over, setOver] = useState(false);
@@ -43,7 +43,7 @@ export default function GameDeck({ supabase, deckId, viewer, roster = [], theme,
   const letIn = !!game?.extra;
   useEffect(() => {
     if (!supabase || state !== "ready" || over || letIn) return undefined;
-    return watchGame(supabase, {
+    return watchGame(supabase, { every: 5000,
       deckId,
       onChange: async () => {
         const res = await supabase.from("decks").select("closed_at").eq("id", deckId);
@@ -51,6 +51,17 @@ export default function GameDeck({ supabase, deckId, viewer, roster = [], theme,
       },
     });
   }, [supabase, deckId, state, over, letIn]);
+
+  // Once the host releases scores, the done screen shows this viewer's.
+  const [result, setResult] = useState(null);
+  const released = game?.deck?.scores_released_at;
+  useEffect(() => {
+    if (!released || typeof supabase?.rpc !== "function") return;
+    supabase.rpc("deck_scores", { d: deckId }).then(r => {
+      const row = (r.data || [])[0];
+      if (row) setResult({ right: row.right_count, answered: row.answered });
+    }).catch(() => {});
+  }, [released, supabase, deckId]);
 
   const onSubmit = useCallback(async (card, value, review) => {
     try {
@@ -94,6 +105,6 @@ export default function GameDeck({ supabase, deckId, viewer, roster = [], theme,
 
   return (
     <QuizDeck title={deck.title} cards={cards} answered={answered} teamName={team?.name}
-      startedAt={startedAt} limitMin={limitMin} over={over} onSubmit={onSubmit} theme={theme} />
+      startedAt={startedAt} limitMin={limitMin} over={over} onSubmit={onSubmit} theme={theme} onExit={onExit} result={result} />
   );
 }

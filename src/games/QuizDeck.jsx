@@ -42,7 +42,7 @@ const Tick = ({ size, color }) => (
  */
 export default function QuizDeck({
   title, cards = [], answered = {}, teamName, startedAt, limitMin, over = false,
-  onSubmit, theme, now: fixedNow,
+  onSubmit, theme, now: fixedNow, onExit, result,
 }) {
   const T = useMemo(() => ({ ...DEFAULT_THEME, ...theme }), [theme]);
   const [done, setDone] = useState(() => new Set(Object.keys(answered)));
@@ -134,6 +134,13 @@ export default function QuizDeck({
           </div>
           <div style={{ fontSize: SIZE.head, fontWeight: 600 }}>{title}</div>
           {teamName ? <div style={{ fontSize: SIZE.body, color: T.dim }}>{teamName}</div> : null}
+          {result ? <div style={{ fontFamily: T.mono, fontSize: SIZE.stat, lineHeight: 1 }}>{result.right} / {result.answered}</div> : null}
+          {onExit ? (
+            <button type="button" onClick={onExit}
+              style={{ minHeight: 52, padding: "0 32px", border: "none", borderRadius: T.radius, fontFamily: T.font, fontSize: SIZE.label, fontWeight: 600, background: T.accent, color: "#ffffff", cursor: "pointer" }}>
+              Done
+            </button>
+          ) : null}
         </div>
       </div>
     );

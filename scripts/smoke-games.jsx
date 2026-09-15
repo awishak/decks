@@ -9,6 +9,10 @@ import { renderToString } from "react-dom/server";
 import QuizDeck, { TeamStart } from "../src/games/QuizDeck.jsx";
 import GameDeck from "../src/games/GameDeck.jsx";
 import GamePanel from "../src/games/GamePanel.jsx";
+import GamesHome from "../src/games/GamesHome.jsx";
+import { formFrom, toSave, problems } from "../src/games/GameSetup.jsx";
+import { GameStart, GamesNow, AGREEMENT } from "../src/games/GameInvite.jsx";
+import { saveGame } from "../src/games/host.js";
 import {
   norm, isRight, scoreGame, previewAccept, groupTyped, isClose,
   timeLeft, secondsLeft, spreadBuckets,
@@ -189,7 +193,7 @@ async function main() {
     closed: renderToString(<GamePanel game={{ ...hostGame, deck: { ...hostGame.deck, closed_at: "2026-09-14T10:20:00Z" } }} roster={roster} />),
   };
   await check("the live panel shows every question, the ranking and time left", () =>
-    /All questions/.test(panels.live) && /Ranking/.test(panels.live) && panels.live.includes("13 min") && /46<!-- -->%|46%/.test(panels.live));
+    /All questions/.test(panels.live) && /Scores/.test(panels.live) && panels.live.includes("13 min") && /46<!-- -->%|46%/.test(panels.live));
   await check("a closed game offers release, take it later and the room screen", () =>
     /Release scores/.test(panels.closed) && /Take it later/.test(panels.closed) && /Put on screen/.test(panels.closed) && !/Answering/.test(panels.closed));
   await check(`nothing on the panel is under ${FLOOR}px`, () => {
@@ -197,6 +201,59 @@ async function main() {
     if (low.length) throw new Error(JSON.stringify(low));
     return true;
   });
+
+  await check("the panel calls it Scores, with the average on top", () =>
+    /Scores/.test(panels.live) && /Average/.test(panels.live) && !/Ranking/.test(panels.live));
+  await check("a draft game offers Open, not Close", () => {
+    const draft = renderToString(<GamePanel game={{ ...hostGame, deck: { ...hostGame.deck, opened_at: null } }} roster={roster} on={{ open() {}, edit() {} }} />);
+    return />Open</.test(draft) && />Edit</.test(draft) && !/>Close</.test(draft);
+  });
+
+  console.log("\nsetting up a game");
+  await check("a form round-trips a saved game", () => {
+    const f = formFrom({ deck: { title: "Week 1", teams: "none", time_limit_min: 20 }, cards: cards1.slice(0, 2), keys: keys1, teams: [] });
+    const out = toSave(f);
+    return f.timeOn && f.minutes === 20 && eq(out.questions.map(q => q.correct), [[1], [1]]) && out.settings.time_limit_min === 20;
+  });
+  await check("an empty option drops out and the right answer follows its option", () => {
+    const f = { title: "T", teams: "none", timeOn: false, closesAt: "", gradebook: false, teamRows: [],
+      questions: [{ text: "Q", image: "", answer: "choice", options: ["", "One", "Two", ""], correct: [2], accepted: "" }] };
+    return eq(toSave(f).questions[0], { id: undefined, text: "Q", image: "", answer: "choice", options: ["One", "Two"], correct: [1] });
+  });
+  await check("free-form accepted answers split on commas", () => {
+    const f = { title: "T", teams: "phone", timeOn: false, closesAt: "", gradebook: false, teamRows: [],
+      questions: [{ text: "Q", image: "", answer: "typed", options: [], correct: [], accepted: "Free, liberty ," }] };
+    return eq(toSave(f).questions[0].correct, ["Free", "liberty"]);
+  });
+  await check("a question with no right answer, or no title, stops the save", () => {
+    const f = { title: "", questions: [{ text: "Q", answer: "choice", options: ["A", "B"], correct: [] }] };
+    return eq(problems(f).map(p => p.what || p.at), ["title", "correct"]);
+  });
+  await check("saving writes the cards and their keys, and retires a removed question", async () => {
+    const sb = fakeSupabase({ tables: { decks: [{ id: "d" }], deck_cards: [{ id: "old", deck_id: "d" }], deck_keys: [] } });
+    await saveGame(sb, { deckId: "d", settings: { title: "Week 1" }, existingIds: ["old"],
+      questions: [{ text: "Why?", image: "", answer: "choice", options: ["A", "B"], correct: [1] }] });
+    const card = sb.tables.deck_cards.find(c => c.type === "question");
+    return card.config.options.length === 2 && sb.tables.deck_keys[0].correct[0] === 1 && !!sb.tables.deck_cards.find(c => c.id === "old").retired_at && sb.tables.decks[0].title === "Week 1";
+  });
+
+  console.log("\nstudents");
+  await check("the card over the site has his words on the box, and Start waits for it", () => {
+    const html = renderToString(<GameStart game={{ deck: { id: "d", title: "Week 1", time_limit_min: 20 }, questions: 10 }} onStart={() => {}} />);
+    return html.includes(AGREEMENT) && /disabled=""[^>]*>Start/.test(html) && html.includes("10 questions") && html.includes("20 min");
+  });
+  await check("the done screen shows a released score and a way back", () => {
+    const html = renderToString(<QuizDeck title="Week 1" cards={cards1.slice(0, 1)} answered={{ q1: {} }} result={{ right: 7, answered: 10 }} onExit={() => {}} />);
+    return /7<!-- --> \/ <!-- -->10/.test(html) && />Done</.test(html);
+  });
+  await check("the community list offers Start for an open game and the score for a released one", () => {
+    const html = renderToString(<GamesNow onStart={() => {}} games={[
+      { deck: { id: "a", title: "Week 2" }, questions: 10, open: true },
+      { deck: { id: "b", title: "Week 1" }, questions: 10, done: true, score: { right: 8, answered: 10 } },
+    ]} />);
+    return />Start</.test(html) && /8<!-- --> \/ <!-- -->10/.test(html);
+  });
+  await check("GamesHome renders", () => typeof renderToString(<GamesHome supabase={fakeSupabase()} groupKey="comm118" />) === "string");
 
   await check("the default theme is the design system's", () => DEFAULT_THEME.font.startsWith("'Outfit'") && DEFAULT_THEME.text === "#1c1917");
 }

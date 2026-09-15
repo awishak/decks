@@ -37,6 +37,75 @@ export async function loadHostGame(sb, { deckId }) {
   return { deck, cards: cards.filter(c => c.type === "question"), keys, accepts, responses, progress, teams, extra };
 }
 
+/** Every game for a group (a class), newest first, with how many questions each has. */
+export async function listGames(sb, { groupKey }) {
+  const decks = (must(await sb.from("decks").select("*").eq("group_key", groupKey).eq("kind", "game").order("created_at", { ascending: false }), "listGames") || [])
+    .filter(d => d.kind === "game");
+  if (!decks.length) return [];
+  const cards = must(await sb.from("deck_cards").select("id, deck_id, type").in("deck_id", decks.map(d => d.id)).is("retired_at", null), "listGames/cards") || [];
+  return decks.map(d => ({ ...d, questions: cards.filter(c => c.deck_id === d.id && c.type === "question").length }));
+}
+
+export async function createGame(sb, { groupKey, title }) {
+  return mustWrite(await sb.from("decks").insert({
+    key: `${groupKey}-game-${Date.now().toString(36)}`, title: title.trim(), group_key: groupKey,
+    kind: "game", published: false, teams: "none", created_at: new Date().toISOString(),
+  }).select(), "createGame")[0];
+}
+
+/**
+ * Save a game from the setup screen: its settings, its questions in order, and
+ * each question's right answers. A question taken out is retired, never
+ * deleted, so nothing that points at it breaks.
+ *
+ * questions: [{ id?, text, image, answer: 'choice'|'typed', options, correct }]
+ *   choice: correct is [option index]; typed: correct is the accepted answers.
+ */
+export async function saveGame(sb, { deckId, settings, questions, existingIds = [] }) {
+  if (settings && Object.keys(settings).length) {
+    mustWrite(await sb.from("decks").update(settings).eq("id", deckId).select(), "saveGame/deck");
+  }
+  const kept = new Set();
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const config = { text: q.text.trim(), answer: q.answer, ...(q.image ? { image: q.image.trim() } : {}),
+      ...(q.answer === "choice" ? { options: q.options.map(o => o.trim()) } : {}) };
+    let id = q.id;
+    if (id) {
+      mustWrite(await sb.from("deck_cards").update({ position: i, config }).eq("id", id).select(), "saveGame/card");
+    } else {
+      const key = `q-${Date.now().toString(36)}-${i}`;
+      id = mustWrite(await sb.from("deck_cards").insert({ deck_id: deckId, position: i, type: "question", key, config }).select(), "saveGame/newCard")[0].id;
+    }
+    kept.add(id);
+    mustWrite(await sb.from("deck_keys").upsert({ card_id: id, deck_id: deckId, correct: q.correct }, { onConflict: "card_id" }).select(), "saveGame/key");
+  }
+  for (const id of existingIds) {
+    if (!kept.has(id)) {
+      mustWrite(await sb.from("deck_cards").update({ retired_at: new Date().toISOString() }).eq("id", id).select(), "saveGame/retire");
+    }
+  }
+}
+
+/** Teams the host sets before a game opens. */
+export async function saveTeams(sb, { deckId, teams, existing = [] }) {
+  const kept = new Set();
+  for (const t of teams) {
+    if (t.id) {
+      mustWrite(await sb.from("deck_teams").update({ name: t.name.trim(), members: t.members }).eq("id", t.id).select(), "saveTeams/update");
+      kept.add(t.id);
+    } else if (t.name.trim()) {
+      kept.add(mustWrite(await sb.from("deck_teams").insert({ deck_id: deckId, name: t.name.trim(), members: t.members }).select(), "saveTeams/insert")[0].id);
+    }
+  }
+  for (const t of existing) {
+    if (!kept.has(t.id)) {
+      // An unused team is removed outright: nobody has answered as it.
+      must(await sb.from("deck_teams").delete().eq("id", t.id), "saveTeams/delete");
+    }
+  }
+}
+
 export async function acceptAnswer(sb, { deckId, cardId, value }) {
   return mustWrite(await sb.from("deck_accepts").insert({ deck_id: deckId, card_id: cardId, value }).select(), "acceptAnswer")[0];
 }
@@ -70,7 +139,7 @@ export async function grantExtraTime(sb, { deckId, viewerId, minutes }) {
  * seconds where it does not (the local preview's fake client). Returns a stop
  * function.
  */
-export function watchGame(sb, { deckId, onChange }) {
+export function watchGame(sb, { deckId, onChange, every = 2000 }) {
   if (typeof sb.channel === "function") {
     const channel = sb.channel(`game-${deckId}`);
     for (const table of ["deck_responses", "deck_progress", "deck_accepts", "deck_extra_time", "deck_teams"]) {
@@ -80,6 +149,6 @@ export function watchGame(sb, { deckId, onChange }) {
     channel.subscribe();
     return () => { sb.removeChannel?.(channel); };
   }
-  const id = setInterval(onChange, 2000);
+  const id = setInterval(onChange, every);
   return () => clearInterval(id);
 }
