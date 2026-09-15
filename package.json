@@ -16,6 +16,7 @@
   "files": ["dist", "migrations", "BRIEF.md"],
   "scripts": {
     "build": "vite build",
+    "prepare": "vite build",
     "types": "tsc -p jsconfig.json",
     "smoke": "esbuild scripts/smoke.jsx --bundle --platform=node --format=cjs --outfile=node_modules/.cache/smoke.cjs --loader:.jsx=jsx --jsx=automatic --log-level=error && node node_modules/.cache/smoke.cjs",
     "test": "npm run smoke"
@@ -31,6 +32,5 @@
     "react-dom": "^18.3.1",
     "vite": "^5.4.11"
   },
-  "license": "UNLICENSED",
-  "private": true
+  "license": "UNLICENSED"
 }
