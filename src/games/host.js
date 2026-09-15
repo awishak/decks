@@ -39,10 +39,10 @@ export async function loadHostGame(sb, { deckId }) {
   return { deck, cards: cards.filter(c => c.type === "question"), keys, accepts, responses, progress, teams, extra };
 }
 
-/** Every game for a group (a class), newest first, with how many questions each has. */
+/** Every game for a group (a class), newest first, with how many questions each has. Runs are not games. */
 export async function listGames(sb, { groupKey }) {
   const decks = (must(await sb.from("decks").select("*").eq("group_key", groupKey).eq("kind", "game").order("created_at", { ascending: false }), "listGames") || [])
-    .filter(d => d.kind === "game");
+    .filter(d => d.kind === "game" && !d.source_id);
   if (!decks.length) return [];
   const cards = must(await sb.from("deck_cards").select("id, deck_id, type").in("deck_id", decks.map(d => d.id)).is("retired_at", null), "listGames/cards") || [];
   return decks.map(d => ({ ...d, questions: cards.filter(c => c.deck_id === d.id && c.type === "question").length }));
@@ -61,38 +61,94 @@ async function allRows(build, what, page = 1000) {
   }
 }
 
-/**
- * A group's games with what the games list shows for each: questions, when it
- * last ran, how many finished, and the average score.
- * Each: { ...deck, questions, finished, teamsCount, average, players }
- */
-export async function listGameStats(sb, { groupKey }) {
-  const games = await listGames(sb, { groupKey });
-  if (!games.length) return [];
-  const ids = games.map(g => g.id);
+/** How one run went: finished, teams, the average and who played. */
+async function runStats(sb, runIds) {
+  if (!runIds.length) return {};
   const [cards, keyRows, accepts, progress, teams] = await Promise.all([
-    allRows(() => sb.from("deck_cards").select("id, deck_id, type, position, config").in("deck_id", ids).is("retired_at", null), "stats/cards"),
-    allRows(() => sb.from("deck_keys").select("card_id, correct").in("deck_id", ids), "stats/keys"),
-    allRows(() => sb.from("deck_accepts").select("card_id, value, deck_id").in("deck_id", ids), "stats/accepts"),
-    allRows(() => sb.from("deck_progress").select("deck_id, viewer_id, completed_at").in("deck_id", ids), "stats/progress"),
-    allRows(() => sb.from("deck_teams").select("id, deck_id").in("deck_id", ids), "stats/teams"),
+    allRows(() => sb.from("deck_cards").select("id, deck_id, type, position, config").in("deck_id", runIds).is("retired_at", null), "stats/cards"),
+    allRows(() => sb.from("deck_keys").select("card_id, correct").in("deck_id", runIds), "stats/keys"),
+    allRows(() => sb.from("deck_accepts").select("card_id, value, deck_id").in("deck_id", runIds), "stats/accepts"),
+    allRows(() => sb.from("deck_progress").select("deck_id, viewer_id, completed_at").in("deck_id", runIds), "stats/progress"),
+    allRows(() => sb.from("deck_teams").select("id, deck_id").in("deck_id", runIds), "stats/teams"),
   ]);
   const keys = Object.fromEntries(keyRows.map(k => [k.card_id, k.correct]));
-  const responses = await Promise.all(games.map(d =>
-    d.opened_at ? allRows(() => sb.from("deck_responses").select("id, card_id, viewer_id, answer").eq("deck_id", d.id).order("id", { ascending: true }), "stats/responses") : []));
-  return games.map((d, i) => {
-    const mine = cards.filter(c => c.deck_id === d.id && c.type === "question");
-    const score = scoreGame({ cards: mine, keys, accepts: accepts.filter(a => a.deck_id === d.id), responses: responses[i] });
-    const done = progress.filter(p => p.deck_id === d.id && p.completed_at);
-    return {
-      ...d,
-      questions: mine.length,
-      finished: done.length,
-      teamsCount: teams.filter(t => t.deck_id === d.id).length,
+  const responses = await Promise.all(runIds.map(id =>
+    allRows(() => sb.from("deck_responses").select("id, card_id, viewer_id, answer").eq("deck_id", id).order("id", { ascending: true }), "stats/responses")));
+  const out = {};
+  runIds.forEach((id, i) => {
+    const score = scoreGame({ cards: cards.filter(c => c.deck_id === id && c.type === "question"), keys, accepts: accepts.filter(a => a.deck_id === id), responses: responses[i] });
+    out[id] = {
+      finished: progress.filter(p => p.deck_id === id && p.completed_at).length,
+      teamsCount: teams.filter(t => t.deck_id === id).length,
       average: score.ranking.length ? score.average : null,
       players: score.ranking.map(v => v.viewerId),
     };
   });
+  return out;
+}
+
+/**
+ * A group's games with what the games list shows for each, read off its latest
+ * run: questions, when it last ran and for whom, how many finished, the average.
+ * Each: { ...game, questions, lastRun, runs, finished, teamsCount, average, players }
+ */
+export async function listGameStats(sb, { groupKey }) {
+  const games = await listGames(sb, { groupKey });
+  if (!games.length) return [];
+  const runs = must(await sb.from("decks").select("*").in("source_id", games.map(g => g.id)), "stats/runs") || [];
+  const runsOf = (g) => [...runs.filter(r => r.source_id === g.id), ...(g.opened_at ? [g] : [])]
+    .sort((a, b) => String(b.opened_at || "").localeCompare(String(a.opened_at || "")));
+  const latest = games.map(g => runsOf(g)[0]).filter(Boolean);
+  const stats = await runStats(sb, latest.map(r => r.id));
+  return games.map(g => {
+    const all = runsOf(g);
+    const last = all[0] || null;
+    return { ...g, runs: all.length, lastRun: last, ...(last ? stats[last.id] : { finished: 0, teamsCount: 0, average: null, players: [] }) };
+  });
+}
+
+/** Stats for a list of runs, keyed by run id: the game page's table of its runs. */
+export async function statsForRuns(sb, { runIds }) {
+  return runStats(sb, runIds);
+}
+
+// ─── runs ───
+//
+// A game is its questions. Run makes a run: a copy of the game's questions and
+// right answers, opened to one class or one section, which then holds that
+// sitting's answers, approvals, closing and releases. A run is a snapshot, so
+// editing the game afterwards changes the next run and never an earlier one.
+
+/**
+ * Run a game for a class or a section. Resolves with the run.
+ * target: { groupKey, section? }  (section null or absent: the whole class)
+ */
+export async function runGame(sb, { deckId, groupKey, section = null }) {
+  const game = await loadHostGame(sb, { deckId });
+  if (!game) throw Object.assign(new Error("runGame: no such game"), { code: "missing" });
+  const d = game.deck;
+  const now = new Date().toISOString();
+  const run = mustWrite(await sb.from("decks").insert({
+    key: `${d.key}-run-${Date.now().toString(36)}`, title: d.title, group_key: groupKey, section,
+    kind: "game", teams: d.teams, time_limit_min: d.time_limit_min, gradebook: d.gradebook,
+    source_id: d.source_id || d.id, published: true, opened_at: now, created_at: now,
+  }).select(), "runGame/deck")[0];
+  for (const c of game.cards) {
+    const card = mustWrite(await sb.from("deck_cards").insert({ deck_id: run.id, position: c.position, type: "question", key: c.key, config: c.config }).select(), "runGame/card")[0];
+    // A run starts with every answer the game counts right: its key, and any answer
+    // approved when it ran before (a game run before runs existed keeps those as approvals).
+    const approved = game.accepts.filter(a => a.card_id === c.id && !(a.value && typeof a.value === "object")).map(a => a.value);
+    mustWrite(await sb.from("deck_keys").insert({ card_id: card.id, deck_id: run.id, correct: [...(game.keys[c.id] || []), ...approved] }).select(), "runGame/key");
+  }
+  return run;
+}
+
+/** A game's runs, newest first. A game that ran before runs existed counts as its own first run. */
+export async function listRuns(sb, { deckId }) {
+  const deck = (must(await sb.from("decks").select("*").eq("id", deckId), "listRuns/deck") || [])[0];
+  const runs = must(await sb.from("decks").select("*").eq("source_id", deckId).order("opened_at", { ascending: false }), "listRuns") || [];
+  const all = [...runs, ...(deck?.opened_at ? [deck] : [])];
+  return all.sort((a, b) => String(b.opened_at || "").localeCompare(String(a.opened_at || "")));
 }
 
 export async function createGame(sb, { groupKey, title }) {
@@ -163,6 +219,25 @@ export async function denyAnswer(sb, { deckId, cardId, value }) {
 /** Take back an approval or a denial: its answers wait in the stream again. */
 export async function undoVerdict(sb, { id }) {
   return mustWrite(await sb.from("deck_accepts").delete().eq("id", id).select(), "undoVerdict");
+}
+
+/**
+ * Accept an answer in the game a run came from, so every later run of it starts
+ * with that answer right. Earlier runs are not touched. Resolves false when the
+ * run has no game (a game that ran before runs existed) or the question is gone.
+ */
+export async function acceptInGame(sb, { runId, cardId, value }) {
+  const run = (must(await sb.from("decks").select("id, source_id").eq("id", runId), "acceptInGame/run") || [])[0];
+  if (!run?.source_id) return false;
+  const card = (must(await sb.from("deck_cards").select("key").eq("id", cardId), "acceptInGame/card") || [])[0];
+  if (!card) return false;
+  const gameCard = (must(await sb.from("deck_cards").select("id").eq("deck_id", run.source_id).eq("key", card.key).is("retired_at", null), "acceptInGame/gameCard") || [])[0];
+  if (!gameCard) return false;
+  const key = (must(await sb.from("deck_keys").select("correct").eq("card_id", gameCard.id), "acceptInGame/key") || [])[0];
+  const correct = Array.isArray(key?.correct) ? key.correct : [];
+  if (correct.some(c => String(c).trim().toLowerCase() === String(value).trim().toLowerCase())) return true;
+  mustWrite(await sb.from("deck_keys").upsert({ card_id: gameCard.id, deck_id: run.source_id, correct: [...correct, value] }, { onConflict: "card_id" }).select(), "acceptInGame");
+  return true;
 }
 
 export async function acceptAnswer(sb, { deckId, cardId, value }) {

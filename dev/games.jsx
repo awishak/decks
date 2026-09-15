@@ -15,8 +15,8 @@ const students = [...new Set(week1.responses.map(r => r[0]))];
 const sb = fakeSupabase({
   tables: {
     decks: [
-      { id: "draft", title: "Week 3", group_key: "comm118", kind: "game", teams: "none", published: false, created_at: "2026-09-15T00:00:00Z" },
-      { id: "week1", title: "Week 1", group_key: "comm118", kind: "game", teams: "none", published: true, opened_at: ran, closed_at: ran, created_at: ran },
+      { id: "draft", key: "comm118-week3", title: "Week 3", group_key: "comm118", kind: "game", teams: "none", published: false, created_at: "2026-09-15T00:00:00Z" },
+      { id: "week1", key: "comm118-week1", title: "Week 1", group_key: "comm118", kind: "game", teams: "none", published: true, opened_at: ran, closed_at: ran, created_at: ran },
     ],
     deck_cards: cards,
     deck_keys: week1.questions.map((q, i) => ({ deck_id: "week1", card_id: `w1-${i}`, correct: [q.correct] })),
@@ -31,5 +31,6 @@ const roster = [...students, "s29", "s30"].map((id, i) => ({ id, name: `Student 
 
 createRoot(document.getElementById("root")).render(
   <GamesHome supabase={sb} groupKey="comm118" context="COMM 118" roster={roster}
+    groups={[{ groupKey: "comm118", section: null, label: "COMM 118 · Fall 2026" }, { groupKey: "comm3", section: "8:00", label: "COMM 3 · Fall 2026 · 8:00" }, { groupKey: "comm3", section: "10:30", label: "COMM 3 · Fall 2026 · 10:30" }]}
     places={(d) => (d.id === "draft" ? ["Wed, Sep 30"] : [])} onError={e => console.error(e)} />,
 );

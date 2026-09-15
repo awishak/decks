@@ -15,6 +15,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { DEFAULT_THEME, SIZE } from "../tokens.js";
 import { loadHostGame, saveGame, saveTeams, openGame } from "./host.js";
+import RunPicker from "./RunPicker.jsx";
 
 const LETTERS = "ABCDEFGHIJ";
 const HIT = 34;
@@ -84,7 +85,7 @@ export function toSave(form) {
   return { settings, questions };
 }
 
-export default function GameSetup({ supabase, deckId, roster = [], context, theme, onDone, onBack, onSaved, onError }) {
+export default function GameSetup({ supabase, deckId, roster = [], context, theme, onDone, onBack, onSaved, onError, groups = [], onRun }) {
   const T = useMemo(() => ({ ...DEFAULT_THEME, ...theme }), [theme]);
   const [game, setGame] = useState(null);
   const [form, setForm] = useState(null);
@@ -150,7 +151,9 @@ export default function GameSetup({ supabase, deckId, roster = [], context, them
             style={{ ...s.input, fontSize: SIZE.head, fontWeight: 600, border: "none", boxShadow: badAt("title") ? `inset 0 0 0 2px ${T.late}` : "none", padding: "2px 6px", marginLeft: -6, background: "transparent" }} />
         </div>
         {saved ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.ok, fontWeight: 600 }}>Saved</span> : null}
-        <button type="button" style={s.ghost} disabled={saving} onClick={() => setConfirmOpen(true)}>Open</button>
+        {onRun && groups.length
+          ? <RunPicker T={T} groups={groups} solid={false} onRun={async (target) => { if (await save(false)) await onRun(target); }} />
+          : <button type="button" style={s.ghost} disabled={saving} onClick={() => setConfirmOpen(true)}>Open</button>}
         <button type="button" style={s.solid} disabled={saving} onClick={() => save(false)}>Save</button>
         {confirmOpen ? <OpenConfirm T={T} title={form.title} questions={form.questions.length} onCancel={() => setConfirmOpen(false)} onOpen={() => { setConfirmOpen(false); save(true); }} /> : null}
       </div>

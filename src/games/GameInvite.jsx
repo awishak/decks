@@ -21,7 +21,7 @@ export const AGREEMENT = "I agree not to leave this window during this event";
  * Games this viewer can play or has played, for a group.
  * Each: { deck, questions, done, score } where score is { right, answered } once released.
  */
-export function useOpenGames({ supabase, groupKey, viewerId, every = 8000 }) {
+export function useOpenGames({ supabase, groupKey, viewerId, section = null, every = 8000 }) {
   const [games, setGames] = useState([]);
 
   const refresh = useCallback(async () => {
@@ -29,7 +29,8 @@ export function useOpenGames({ supabase, groupKey, viewerId, every = 8000 }) {
     try {
       const res = await supabase.from("decks").select("*").eq("group_key", groupKey).eq("kind", "game").eq("published", true);
       if (res.error) return;
-      const decks = (res.data || []).filter(d => d.kind === "game" && d.opened_at);
+      // A run opened to one section is not for the other section's students.
+      const decks = (res.data || []).filter(d => d.kind === "game" && d.opened_at && (!d.section || !section || d.section === section));
       if (!decks.length) { setGames([]); return; }
       const ids = decks.map(d => d.id);
       const [cards, progress, extra] = await Promise.all([
@@ -54,7 +55,7 @@ export function useOpenGames({ supabase, groupKey, viewerId, every = 8000 }) {
       }
       setGames(out);
     } catch { /* a missed check is caught by the next one */ }
-  }, [supabase, groupKey, viewerId]);
+  }, [supabase, groupKey, viewerId, section]);
 
   useEffect(() => {
     refresh();

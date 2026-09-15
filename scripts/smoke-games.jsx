@@ -12,7 +12,8 @@ import GamePanel from "../src/games/GamePanel.jsx";
 import GamesHome from "../src/games/GamesHome.jsx";
 import { formFrom, toSave, problems } from "../src/games/GameSetup.jsx";
 import { GameStart, GamesNow, AGREEMENT } from "../src/games/GameInvite.jsx";
-import { saveGame, denyAnswer, undoVerdict } from "../src/games/host.js";
+import { saveGame, denyAnswer, undoVerdict, runGame, listRuns, listGames, acceptInGame } from "../src/games/host.js";
+import RunPicker from "../src/games/RunPicker.jsx";
 import {
   norm, isRight, scoreGame, previewAccept, groupTyped, isClose,
   timeLeft, secondsLeft, spreadBuckets, approvalStream, recentVerdicts, isDenial,
@@ -142,6 +143,61 @@ async function main() {
     const denied = sb.tables.deck_accepts.length === 1 && sb.tables.deck_accepts[0].value.denied === "Lake cross";
     await undoVerdict(sb, { id: row.id });
     return denied && sb.tables.deck_accepts.length === 0;
+  });
+
+  console.log("\nruns: one game, a run per class or section");
+  const runWorld = () => fakeSupabase({ tables: {
+    decks: [{ id: "g", key: "comm3-game-1", title: "Week 1", group_key: "comm3", kind: "game", teams: "none", time_limit_min: 15, published: false }],
+    deck_cards: [{ id: "c1", deck_id: "g", position: 0, type: "question", key: "q1", config: { text: "Lacrosse?", answer: "typed" } }],
+    deck_keys: [{ card_id: "c1", deck_id: "g", correct: ["The stick"] }],
+    deck_accepts: [], deck_responses: [], deck_progress: [], deck_teams: [], deck_extra_time: [],
+  } });
+  await check("Run makes a run for the section, with the game's questions and answers", async () => {
+    const sb = runWorld();
+    const r = await runGame(sb, { deckId: "g", groupKey: "comm3", section: "8:00" });
+    const cards = sb.tables.deck_cards.filter(c => c.deck_id === r.id);
+    const key = sb.tables.deck_keys.find(k => k.card_id === cards[0].id);
+    return r.source_id === "g" && r.section === "8:00" && r.published && !!r.opened_at && r.time_limit_min === 15
+      && cards.length === 1 && cards[0].key === "q1" && eq(key.correct, ["The stick"]);
+  });
+  await check("running it again for the other section leaves the first run alone", async () => {
+    const sb = runWorld();
+    const a = await runGame(sb, { deckId: "g", groupKey: "comm3", section: "8:00" });
+    sb.tables.deck_responses.push({ deck_id: a.id, card_id: "x", viewer_id: "s1", answer: { value: "Sticks" } });
+    const b = await runGame(sb, { deckId: "g", groupKey: "comm3", section: "10:30" });
+    const runs = await listRuns(sb, { deckId: "g" });
+    return a.id !== b.id && runs.length === 2 && sb.tables.deck_responses.every(x => x.deck_id === a.id);
+  });
+  await check("the games list shows games, never their runs", async () => {
+    const sb = runWorld();
+    await runGame(sb, { deckId: "g", groupKey: "comm3", section: "8:00" });
+    return eq((await listGames(sb, { groupKey: "comm3" })).map(g => g.id), ["g"]);
+  });
+  await check("a game that ran before runs existed counts as its own first run", async () => {
+    const sb = runWorld();
+    sb.tables.decks[0].opened_at = "2026-04-02T17:00:00Z";
+    await runGame(sb, { deckId: "g", groupKey: "comm3", section: "8:00" });
+    const runs = await listRuns(sb, { deckId: "g" });
+    return runs.length === 2 && runs.some(r => r.id === "g");
+  });
+  await check("a run starts with answers the game approved when it ran before", async () => {
+    const sb = runWorld();
+    sb.tables.deck_accepts.push({ id: "a1", deck_id: "g", card_id: "c1", value: "Sticks" }, { id: "d1", deck_id: "g", card_id: "c1", value: { denied: "Lake cross" } });
+    const r = await runGame(sb, { deckId: "g", groupKey: "comm3" });
+    const card = sb.tables.deck_cards.find(c => c.deck_id === r.id);
+    return eq(sb.tables.deck_keys.find(k => k.card_id === card.id).correct, ["The stick", "Sticks"]);
+  });
+  await check("an answer approved in a run is accepted in its game for the next section", async () => {
+    const sb = runWorld();
+    const r = await runGame(sb, { deckId: "g", groupKey: "comm3", section: "8:00" });
+    const card = sb.tables.deck_cards.find(c => c.deck_id === r.id);
+    const done = await acceptInGame(sb, { runId: r.id, cardId: card.id, value: "Sticks" });
+    return done && eq(sb.tables.deck_keys.find(k => k.card_id === "c1").correct, ["The stick", "Sticks"]);
+  });
+  await check("the Run picker lists each section and marks one already open", () => {
+    const html = renderToString(<RunPicker T={DEFAULT_THEME} inline groups={[{ groupKey: "comm3", section: "8:00", label: "COMM 3 · 8:00" }, { groupKey: "comm3", section: "10:30", label: "COMM 3 · 10:30" }]}
+      openFor={[{ groupKey: "comm3", section: "8:00" }]} onRun={() => {}} />);
+    return html.includes("COMM 3 · 8:00") && html.includes("COMM 3 · 10:30") && (html.match(/>Open</g) || []).length === 1;
   });
 
   console.log("\ntime");

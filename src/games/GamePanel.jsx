@@ -17,8 +17,9 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { DEFAULT_THEME, SIZE } from "../tokens.js";
 import { scoreGame, previewAccept, groupTyped, spreadBuckets, timeLeft, isDenial, norm, approvalStream, recentVerdicts } from "./score.js";
-import { loadHostGame, watchGame, acceptAnswer, denyAnswer, undoVerdict, openGame, closeGame, release, grantExtraTime } from "./host.js";
+import { loadHostGame, watchGame, acceptAnswer, acceptInGame, denyAnswer, undoVerdict, openGame, closeGame, release, grantExtraTime } from "./host.js";
 import { OpenConfirm } from "./GameSetup.jsx";
+import RunPicker from "./RunPicker.jsx";
 
 const LETTERS = "ABCDEFGHIJ";
 const HIT = 34;   // an instructor surface: a trackpad under your hands
@@ -451,6 +452,7 @@ function TypedAnswers({ T, q, correct, accepted, nameOf, game, card, onAccept, o
 }
 
 function AfterClose({ T, deck, score, notStarted, extra, nameOf, on }) {
+  const rc = on.runControl;
   const s = styles(T);
   const [minutes, setMinutes] = useState({});
   const buckets = spreadBuckets(score.ranking.map(v => v.pct));
@@ -460,7 +462,14 @@ function AfterClose({ T, deck, score, notStarted, extra, nameOf, on }) {
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "360px 360px minmax(0, 1fr)", gap: 24, padding: "24px 32px 0" }}>
-      <div style={{ ...s.card, overflow: "hidden", alignSelf: "start" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 24, alignSelf: "start" }}>
+      {rc && rc.groups.length ? (
+        <div style={{ ...s.card, padding: "14px 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: SIZE.body, fontWeight: 600, padding: "0 4px" }}>Run</div>
+          <RunPicker T={T} inline groups={rc.groups} openFor={rc.openFor} onRun={rc.onRun} />
+        </div>
+      ) : null}
+      <div style={{ ...s.card, overflow: "hidden" }}>
         <div style={{ padding: "14px 20px", fontSize: SIZE.body, fontWeight: 600, boxShadow: `0 1px 0 ${T.line}` }}>Release</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 52, padding: "0 20px", boxShadow: `0 1px 0 ${T.line}` }}>
           <span>Scores</span>{released("scores_released_at") || <button type="button" style={s.solid} onClick={() => on.release?.("scores")}>Release scores</button>}
@@ -468,6 +477,7 @@ function AfterClose({ T, deck, score, notStarted, extra, nameOf, on }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 52, padding: "0 20px" }}>
           <span>Answers</span>{released("answers_released_at") || <button type="button" style={s.ghost} onClick={() => on.release?.("answers")}>Release answers</button>}
         </div>
+      </div>
       </div>
 
       <div style={{ ...s.card, overflow: "hidden", alignSelf: "start" }}>
@@ -537,7 +547,7 @@ function AfterClose({ T, deck, score, notStarted, extra, nameOf, on }) {
  * The panel wired to the database: loads the game, redraws as answers arrive
  * (realtime, or polling on a client without it), and writes each action.
  */
-export function GamePanelLive({ supabase, deckId, context, roster, theme, onScreen, onError, onBack, onEdit, onChange }) {
+export function GamePanelLive({ supabase, deckId, context, roster, theme, onScreen, onError, onBack, onEdit, onChange, runControl }) {
   const [game, setGame] = useState(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -556,7 +566,13 @@ export function GamePanelLive({ supabase, deckId, context, roster, theme, onScre
 
   const act = (fn) => async (...args) => { try { await fn(...args); await load(); } catch (e) { onError?.(e); } };
   const on = {
-    accept: act((cardId, value) => acceptAnswer(supabase, { deckId, cardId, value })),
+    // An answer approved in a run is also accepted in its game, so the next
+    // section starts with it right. The run's own approval is what scores here.
+    accept: act(async (cardId, value) => {
+      await acceptAnswer(supabase, { deckId, cardId, value });
+      if (game?.deck?.source_id && typeof value === "string") await acceptInGame(supabase, { runId: deckId, cardId, value });
+    }),
+    runControl,
     deny: act((cardId, value) => denyAnswer(supabase, { deckId, cardId, value })),
     undo: act((id) => undoVerdict(supabase, { id })),
     close: act(() => closeGame(supabase, { deckId })),
