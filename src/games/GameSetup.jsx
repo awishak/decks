@@ -141,7 +141,7 @@ export default function GameSetup({ supabase, deckId, roster = [], context, them
   };
 
   return (
-    <div className="gs" style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, fontSize: SIZE.small }}>
+    <div className="gs" style={{ background: T.bg, color: T.text, fontFamily: T.font, fontSize: SIZE.small }}>
       <style>{`.gs *{box-sizing:border-box}.gs button:focus-visible,.gs input:focus-visible,.gs textarea:focus-visible{outline:2px solid ${T.accent};outline-offset:2px}`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 32px", background: T.panel, boxShadow: `0 1px 0 ${T.line}`, position: "relative" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 0 }}>

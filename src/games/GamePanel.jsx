@@ -64,7 +64,7 @@ export default function GamePanel({ context, game, roster = [], now = Date.now()
 
   const s = styles(T);
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, fontSize: SIZE.small }}>
+    <div style={{ background: T.bg, color: T.text, fontFamily: T.font, fontSize: SIZE.small }}>
       <style>{`.gp-row{cursor:pointer}.gp-row:hover{background:${T.panel2}}.gp button:focus-visible,.gp-row:focus-visible{outline:2px solid ${T.accent};outline-offset:2px}.gp *{box-sizing:border-box}`}</style>
       <div className="gp">
         {/* Header: the game, and the numbers that matter while it runs. */}
