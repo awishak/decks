@@ -5,6 +5,8 @@
 // than rewriting anyone's score, which is why every score, the ranking and
 // released scores move on their own.
 
+import { scoreGame } from "./score.js";
+
 function must(res, what) {
   if (res.error) throw Object.assign(new Error(`${what}: ${res.error.message}`), { code: res.error.code });
   return res.data;
@@ -28,7 +30,7 @@ export async function loadHostGame(sb, { deckId }) {
     one("deck_cards", "loadHostGame/cards", q => q.is("retired_at", null).order("position", { ascending: true })),
     one("deck_keys", "loadHostGame/keys"),
     one("deck_accepts", "loadHostGame/accepts"),
-    one("deck_responses", "loadHostGame/responses"),
+    allRows(() => sb.from("deck_responses").select("*").eq("deck_id", deckId).order("id", { ascending: true }), "loadHostGame/responses"),
     one("deck_progress", "loadHostGame/progress"),
     one("deck_teams", "loadHostGame/teams"),
     one("deck_extra_time", "loadHostGame/extra"),
@@ -44,6 +46,53 @@ export async function listGames(sb, { groupKey }) {
   if (!decks.length) return [];
   const cards = must(await sb.from("deck_cards").select("id, deck_id, type").in("deck_id", decks.map(d => d.id)).is("retired_at", null), "listGames/cards") || [];
   return decks.map(d => ({ ...d, questions: cards.filter(c => c.deck_id === d.id && c.type === "question").length }));
+}
+
+// Every row a query matches, a page at a time: Supabase hands back at most a
+// thousand rows per request, and a long game in a big class has more answers.
+async function allRows(build, what, page = 1000) {
+  const out = [];
+  for (let from = 0; ; from += page) {
+    const q = build();
+    const res = await (typeof q.range === "function" ? q.range(from, from + page - 1) : q);
+    const rows = must(res, what) || [];
+    out.push(...rows);
+    if (typeof q.range !== "function" || rows.length < page) return out;
+  }
+}
+
+/**
+ * A group's games with what the games list shows for each: questions, when it
+ * last ran, how many finished, and the average score.
+ * Each: { ...deck, questions, finished, teamsCount, average, players }
+ */
+export async function listGameStats(sb, { groupKey }) {
+  const games = await listGames(sb, { groupKey });
+  if (!games.length) return [];
+  const ids = games.map(g => g.id);
+  const [cards, keyRows, accepts, progress, teams] = await Promise.all([
+    allRows(() => sb.from("deck_cards").select("id, deck_id, type, position, config").in("deck_id", ids).is("retired_at", null), "stats/cards"),
+    allRows(() => sb.from("deck_keys").select("card_id, correct").in("deck_id", ids), "stats/keys"),
+    allRows(() => sb.from("deck_accepts").select("card_id, value, deck_id").in("deck_id", ids), "stats/accepts"),
+    allRows(() => sb.from("deck_progress").select("deck_id, viewer_id, completed_at").in("deck_id", ids), "stats/progress"),
+    allRows(() => sb.from("deck_teams").select("id, deck_id").in("deck_id", ids), "stats/teams"),
+  ]);
+  const keys = Object.fromEntries(keyRows.map(k => [k.card_id, k.correct]));
+  const responses = await Promise.all(games.map(d =>
+    d.opened_at ? allRows(() => sb.from("deck_responses").select("id, card_id, viewer_id, answer").eq("deck_id", d.id).order("id", { ascending: true }), "stats/responses") : []));
+  return games.map((d, i) => {
+    const mine = cards.filter(c => c.deck_id === d.id && c.type === "question");
+    const score = scoreGame({ cards: mine, keys, accepts: accepts.filter(a => a.deck_id === d.id), responses: responses[i] });
+    const done = progress.filter(p => p.deck_id === d.id && p.completed_at);
+    return {
+      ...d,
+      questions: mine.length,
+      finished: done.length,
+      teamsCount: teams.filter(t => t.deck_id === d.id).length,
+      average: score.ranking.length ? score.average : null,
+      players: score.ranking.map(v => v.viewerId),
+    };
+  });
 }
 
 export async function createGame(sb, { groupKey, title }) {

@@ -18,6 +18,7 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { DEFAULT_THEME, SIZE } from "../tokens.js";
 import { scoreGame, previewAccept, groupTyped, spreadBuckets, timeLeft } from "./score.js";
 import { loadHostGame, watchGame, acceptAnswer, openGame, closeGame, release, grantExtraTime } from "./host.js";
+import { OpenConfirm } from "./GameSetup.jsx";
 
 const LETTERS = "ABCDEFGHIJ";
 const HIT = 34;   // an instructor surface: a trackpad under your hands
@@ -40,6 +41,7 @@ export default function GamePanel({ context, game, roster = [], now = Date.now()
   const T = useMemo(() => ({ ...DEFAULT_THEME, ...theme }), [theme]);
   const [openCard, setOpenCard] = useState(null);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { deck, cards = [], keys = {}, accepts = [], responses = [], progress = [], teams = [], extra = [] } = game;
   const score = useMemo(() => scoreGame({ cards, keys, accepts, responses }), [cards, keys, accepts, responses]);
@@ -68,9 +70,7 @@ export default function GamePanel({ context, game, roster = [], now = Date.now()
         {/* Header: the game, and the numbers that matter while it runs. */}
         <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "20px 32px", background: T.panel, boxShadow: `0 1px 0 ${T.line}`, position: "relative" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-            {on.back
-              ? <button type="button" onClick={() => on.back()} style={{ ...s.quiet, padding: 0, justifyContent: "flex-start", fontSize: SIZE.micro }}>{context ? `${context} · Games` : "Games"}</button>
-              : context ? <span style={{ fontSize: SIZE.micro, color: T.faint }}>{context}</span> : null}
+            {context ? <span style={{ fontSize: SIZE.micro, color: T.faint }}>{context}</span> : null}
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: SIZE.head, fontWeight: 600, letterSpacing: "-0.01em" }}>{deck.title}</span>
               {tags.map(t => <span key={t} style={s.tag}>{t}</span>)}
@@ -80,17 +80,18 @@ export default function GamePanel({ context, game, roster = [], now = Date.now()
             {!deck.opened_at ? (
               <>
                 {on.edit ? <button type="button" style={s.ghost} onClick={() => on.edit()}>Edit</button> : null}
-                <button type="button" style={s.solid} onClick={() => on.open?.()}>Open</button>
+                <button type="button" style={s.solid} onClick={() => setConfirmOpen(true)}>Open</button>
               </>
             ) : null}
             {!closed && deck.opened_at && on.screen ? <button type="button" style={s.ghost} onClick={() => on.screen({ view: "during" })}>Put on screen</button> : null}
             {!closed && ends ? <Stat T={T} label="Time left" value={timeLeft((ends - now) / 1000)} /> : null}
-            <Stat T={T} label="Submitted" value={teamGame ? `${submitted} / ${teams.length}` : submitted} />
-            {!closed ? <Stat T={T} label="Answering" value={answering.size} color={T.ok} /> : null}
-            {!closed && !teamGame ? <Stat T={T} label="Not started" value={notStarted.length} /> : null}
+            {deck.opened_at ? <Stat T={T} label="Submitted" value={teamGame ? `${submitted} / ${teams.length}` : submitted} /> : null}
+            {!closed && deck.opened_at ? <Stat T={T} label="Answering" value={answering.size} color={T.ok} /> : null}
+            {!closed && deck.opened_at && !teamGame ? <Stat T={T} label="Not started" value={notStarted.length} /> : null}
             {closed ? <Stat T={T} label="Class average" value={`${score.average}%`} /> : null}
             {!closed && deck.opened_at ? <button type="button" style={s.ghost} onClick={() => setConfirmClose(true)}>Close</button> : null}
           </div>
+          {confirmOpen ? <OpenConfirm T={T} title={deck.title} questions={cards.length} onCancel={() => setConfirmOpen(false)} onOpen={async () => { setConfirmOpen(false); await on.open?.(); }} /> : null}
           {confirmClose ? (
             <CloseConfirm T={T} title={deck.title} submitted={submitted} answering={answering.size} notStarted={notStarted.length} teamGame={teamGame}
               onCancel={() => setConfirmClose(false)}

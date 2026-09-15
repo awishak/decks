@@ -84,13 +84,14 @@ export function toSave(form) {
   return { settings, questions };
 }
 
-export default function GameSetup({ supabase, deckId, roster = [], context, theme, onDone, onBack, onError }) {
+export default function GameSetup({ supabase, deckId, roster = [], context, theme, onDone, onBack, onSaved, onError }) {
   const T = useMemo(() => ({ ...DEFAULT_THEME, ...theme }), [theme]);
   const [game, setGame] = useState(null);
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [tried, setTried] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -119,6 +120,7 @@ export default function GameSetup({ supabase, deckId, roster = [], context, them
       setForm(formFrom(fresh));
       setTried(false);
       setSaved(true);
+      onSaved?.();
       if (andOpen) onDone?.();
       return true;
     } catch (e) {
@@ -141,15 +143,16 @@ export default function GameSetup({ supabase, deckId, roster = [], context, them
   return (
     <div className="gs" style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, fontSize: SIZE.small }}>
       <style>{`.gs *{box-sizing:border-box}.gs button:focus-visible,.gs input:focus-visible,.gs textarea:focus-visible{outline:2px solid ${T.accent};outline-offset:2px}`}</style>
-      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 32px", background: T.panel, boxShadow: `0 1px 0 ${T.line}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 32px", background: T.panel, boxShadow: `0 1px 0 ${T.line}`, position: "relative" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 0 }}>
-          <button type="button" onClick={() => (onBack || onDone)?.()} style={{ ...s.quiet, padding: 0, justifyContent: "flex-start", fontSize: SIZE.micro, alignSelf: "flex-start" }}>{context ? `${context} · Games` : "Games"}</button>
+          {context ? <span style={{ fontSize: SIZE.micro, color: T.faint }}>{context}</span> : null}
           <input value={form.title} onChange={e => set({ title: e.target.value })} aria-label="Title"
             style={{ ...s.input, fontSize: SIZE.head, fontWeight: 600, border: "none", boxShadow: badAt("title") ? `inset 0 0 0 2px ${T.late}` : "none", padding: "2px 6px", marginLeft: -6, background: "transparent" }} />
         </div>
         {saved ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.ok, fontWeight: 600 }}>Saved</span> : null}
-        <button type="button" style={s.ghost} disabled={saving} onClick={() => save(false)}>Save</button>
-        <button type="button" style={s.solid} disabled={saving} onClick={() => save(true)}>Open</button>
+        <button type="button" style={s.ghost} disabled={saving} onClick={() => setConfirmOpen(true)}>Open</button>
+        <button type="button" style={s.solid} disabled={saving} onClick={() => save(false)}>Save</button>
+        {confirmOpen ? <OpenConfirm T={T} title={form.title} questions={form.questions.length} onCancel={() => setConfirmOpen(false)} onOpen={() => { setConfirmOpen(false); save(true); }} /> : null}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 380px", gap: 24, padding: "24px 32px 80px", alignItems: "start" }}>
@@ -245,6 +248,24 @@ export default function GameSetup({ supabase, deckId, roster = [], context, them
             <TeamsEditor T={T} rows={form.teamRows} roster={roster} onChange={teamRows => set({ teamRows })} />
           ) : null}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Open asks first, like Close: opening puts the game in front of every student at once. */
+export function OpenConfirm({ T, title, questions, onCancel, onOpen }) {
+  const s = setupStyles(T);
+  return (
+    <div role="dialog" aria-label={`Open ${title}`}
+      style={{ position: "absolute", top: "calc(100% - 8px)", right: 32, width: 320, zIndex: 5, ...s.card, boxShadow: `0 0 0 1px ${T.line}, 0 16px 40px -16px rgba(28,25,23,.3)`, padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ fontSize: SIZE.body, fontWeight: 600 }}>Open {title}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", fontSize: SIZE.small }}>
+        <span style={{ color: T.dim }}>Questions</span><span style={{ fontFamily: T.mono }}>{questions}</span>
+      </div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button type="button" style={s.quiet} onClick={onCancel}>Cancel</button>
+        <button type="button" style={s.solid} onClick={onOpen}>Open</button>
       </div>
     </div>
   );

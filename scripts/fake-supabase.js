@@ -34,6 +34,7 @@ export function fakeSupabase({ tables = {}, writeReturnsNothing = false, failOn 
       not(k, _o, v) { filters.push(["not", k, null, v]); return q; },
       or() { return q; },
       order() { return q; },
+      range(from, to) { q.window = [from, to]; return q; },
       then(resolve) {
         // A tick before answering, as a network call would, so writes started
         // together really do overlap.
@@ -73,7 +74,8 @@ export function fakeSupabase({ tables = {}, writeReturnsNothing = false, failOn 
             hit.forEach(r => Object.assign(r, payload));
             return resolve({ data: hit, error: null });
           }
-          return resolve({ data: apply(store[table] || [], filters), error: null });
+          const found = apply(store[table] || [], filters);
+          return resolve({ data: q.window ? found.slice(q.window[0], q.window[1] + 1) : found, error: null });
         });
       },
     };
