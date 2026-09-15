@@ -1,6 +1,6 @@
 {
   "name": "@ishak/decks",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Full-screen cards that block a site until the viewer has read them and answered what you asked.",
   "type": "module",
   "main": "./dist/decks.js",
