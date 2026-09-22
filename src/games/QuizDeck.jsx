@@ -19,6 +19,10 @@ import { timeLeft, secondsLeft } from "./score.js";
 
 const LETTERS = "ABCDEFGHIJ";
 
+// What the "?" beside Please review says, in Andrew's words (2026-09-22). A
+// host with a different name passes its own.
+export const REVIEW_NOTE = "Click this box if you would like Dr. Ishak to review the material associated with this question.";
+
 // Padding counts inside a width, or a full-width option runs off a phone's edge.
 const QUIZ_CSS = (T) => `.deck-quiz,.deck-quiz *{box-sizing:border-box}
 .deck-quiz button:focus-visible,.deck-quiz input:focus-visible+span{outline:2px solid ${T.accent};outline-offset:2px}`;
@@ -42,7 +46,7 @@ const Tick = ({ size, color }) => (
  */
 export default function QuizDeck({
   title, cards = [], answered = {}, teamName, startedAt, limitMin, over = false,
-  onSubmit, theme, now: fixedNow, onExit, result,
+  onSubmit, theme, now: fixedNow, onExit, result, reviewNote = REVIEW_NOTE,
 }) {
   const T = useMemo(() => ({ ...DEFAULT_THEME, ...theme }), [theme]);
   const [done, setDone] = useState(() => new Set(Object.keys(answered)));
@@ -54,11 +58,14 @@ export default function QuizDeck({
   const [picked, setPicked] = useState(null);
   const [typed, setTyped] = useState("");
   const [review, setReview] = useState(false);
+  // The "?" beside Please review, and what it opens. Nobody reads a checkbox
+  // label twice, so the explanation waits behind a press.
+  const [noteOpen, setNoteOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [failed, setFailed] = useState(false);
 
   // Each question starts clean: nothing picked, Please review unticked.
-  useEffect(() => { setPicked(null); setTyped(""); setReview(false); setFailed(false); }, [card?.key]);
+  useEffect(() => { setPicked(null); setTyped(""); setReview(false); setFailed(false); setNoteOpen(false); }, [card?.key]);
 
   // The clock. Ticks each second only while there is one to show.
   const [now, setNow] = useState(() => fixedNow ?? Date.now());
@@ -199,18 +206,41 @@ export default function QuizDeck({
           {failed ? (
             <div role="alert" style={{ fontSize: SIZE.small, color: T.late }}>Not saved. Submit again.</div>
           ) : null}
+          {noteOpen ? (
+            <div role="dialog" aria-label="Please review"
+              style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 16px", borderRadius: T.radius, background: T.panel2, color: T.text, fontSize: SIZE.small, lineHeight: 1.45 }}>
+              <span style={{ flex: 1 }}>{reviewNote}</span>
+              <button type="button" onClick={() => setNoteOpen(false)} aria-label="Close"
+                style={{ flex: "none", width: TAP, height: TAP, margin: "-10px -10px -10px 0", border: "none", background: "none", color: T.dim, fontFamily: T.font, fontSize: SIZE.label, lineHeight: 1, cursor: "pointer" }}>
+                ×
+              </button>
+            </div>
+          ) : null}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: TAP, fontSize: SIZE.small, color: T.dim, cursor: "pointer" }}>
-              <input type="checkbox" checked={review} onChange={e => setReview(e.target.checked)}
-                style={{ position: "absolute", opacity: 0, width: 1, height: 1 }} />
-              <span aria-hidden="true" style={{
-                width: 24, height: 24, borderRadius: 6, display: "inline-flex", alignItems: "center", justifyContent: "center",
-                background: review ? T.accent : T.panel, boxShadow: review ? "none" : `inset 0 0 0 2px ${T.ghost}`,
-              }}>
-                {review ? <Tick size={15} color="#ffffff" /> : null}
-              </span>
-              Please review
-            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: TAP, fontSize: SIZE.small, color: T.dim, cursor: "pointer" }}>
+                <input type="checkbox" checked={review} onChange={e => setReview(e.target.checked)}
+                  style={{ position: "absolute", opacity: 0, width: 1, height: 1 }} />
+                <span aria-hidden="true" style={{
+                  width: 24, height: 24, borderRadius: 6, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  background: review ? T.accent : T.panel, boxShadow: review ? "none" : `inset 0 0 0 2px ${T.ghost}`,
+                }}>
+                  {review ? <Tick size={15} color="#ffffff" /> : null}
+                </span>
+                Please review
+              </label>
+              <button type="button" onClick={() => setNoteOpen(o => !o)}
+                aria-label="What Please review does" aria-expanded={noteOpen}
+                style={{ flex: "none", width: TAP, height: TAP, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "none", background: "none", cursor: "pointer" }}>
+                <span aria-hidden="true" style={{
+                  width: 22, height: 22, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: T.mono, fontSize: SIZE.micro, fontWeight: 600,
+                  background: noteOpen ? T.accent : T.panel2, color: noteOpen ? "#ffffff" : T.dim,
+                }}>
+                  ?
+                </span>
+              </button>
+            </div>
             <button type="button" onClick={submit} disabled={!ready}
               style={{
                 minHeight: 52, padding: "0 32px", border: "none", borderRadius: T.radius,

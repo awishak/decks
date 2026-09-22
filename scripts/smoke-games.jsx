@@ -6,7 +6,8 @@
 // of 2, 2, 3, 8, 6, 3, 4 from the 40s to 100.
 
 import { renderToString } from "react-dom/server";
-import QuizDeck, { TeamStart } from "../src/games/QuizDeck.jsx";
+import QuizDeck, { TeamStart, REVIEW_NOTE } from "../src/games/QuizDeck.jsx";
+import GameReview from "../src/games/GameReview.jsx";
 import GameDeck from "../src/games/GameDeck.jsx";
 import GamePanel from "../src/games/GamePanel.jsx";
 import GamesHome from "../src/games/GamesHome.jsx";
@@ -266,6 +267,9 @@ async function main() {
     "done": <QuizDeck title="Week 7 Trivia" cards={cards7} answered={{ t1: {}, t2: {}, t3: {} }} teamName="Dallas Sharks" />,
     "out of time": <QuizDeck title="Week 1" cards={cards1} startedAt="2026-09-14T10:00:00Z" limitMin={5} now={Date.parse("2026-09-14T10:06:00Z")} />,
     "team start": <TeamStart title="Week 7 Trivia" viewerId="e@scu.edu" roster={[{ id: "e@scu.edu", name: "E" }, { id: "f@scu.edu", name: "F" }]} />,
+    "their answers back": <GameReview title="Week 1" cards={cards1.slice(0, 3)} result={{ right: 2, answered: 3 }}
+      mine={{ "w1-0": { value: 1 }, "w1-1": { value: 0, review: true }, "w1-2": { value: 2 } }}
+      keys={{ "w1-0": [1], "w1-1": [3], "w1-2": [2] }} onExit={() => {}} />,
   };
   const html = {};
   for (const [name, el] of Object.entries(screens)) {
@@ -356,6 +360,36 @@ async function main() {
       { deck: { id: "b", title: "Week 1" }, questions: 10, done: true, score: { right: 8, answered: 10 } },
     ]} />);
     return />Start</.test(html) && /8<!-- --> \/ <!-- -->10/.test(html);
+  });
+  await check("the ? beside Please review carries his sentence and a way to close it", () => {
+    const html = renderToString(<QuizDeck title="Week 1" cards={cards1.slice(0, 1)} onSubmit={async () => {}} />);
+    return html.includes("Please review") && html.includes("What Please review does") && !html.includes(REVIEW_NOTE);
+  });
+  await check("a finished game hands back their own answers, right and wrong", () => {
+    const cards = cards1.slice(0, 2);
+    const html = renderToString(<GameReview title="Week 1" cards={cards} result={{ right: 1, answered: 2 }}
+      mine={{ [cards[0].id]: { value: week1.questions[0].correct }, [cards[1].id]: { value: 0, review: true } }}
+      keys={{ [cards[0].id]: [week1.questions[0].correct], [cards[1].id]: [3] }} />);
+    return html.includes(cards[0].config.text) && html.includes("Right answer:")
+      && /1<!-- --> \/ <!-- -->2/.test(html) && html.includes("You asked for a review");
+  });
+  await check("with the key still in, the review gives their answers and no verdict", () => {
+    const cards = cards1.slice(0, 1);
+    const html = renderToString(<GameReview title="Week 1" cards={cards} mine={{ [cards[0].id]: { value: 1 } }} keys={{}} />);
+    return html.includes("The right answers are not out yet") && !html.includes("Right answer:");
+  });
+  await check("a played game is a way back into it once the answers are out", () => {
+    const html = renderToString(<GamesNow onStart={() => {}} onReview={() => {}} games={[
+      { deck: { id: "b", title: "Week 1" }, questions: 10, done: true, answersOut: true, score: { right: 8, answered: 10 } },
+    ]} />);
+    return /<button[^>]*>.*Your answers/s.test(html);
+  });
+  await check("before he releases the answers there is no way in, score or no score", () => {
+    const shut = renderToString(<GamesNow onStart={() => {}} onReview={() => {}} games={[
+      { deck: { id: "b", title: "Week 1" }, questions: 10, done: true, answersOut: false },
+      { deck: { id: "c", title: "Week 2" }, questions: 10, done: true, answersOut: false, score: { right: 8, answered: 10 } },
+    ]} />);
+    return !/<button/.test(shut) && !shut.includes("Your answers") && /8<!-- --> \/ <!-- -->10/.test(shut);
   });
   await check("GamesHome renders", () => typeof renderToString(<GamesHome supabase={fakeSupabase()} groupKey="comm118" />) === "string");
 

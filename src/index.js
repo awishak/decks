@@ -6,7 +6,8 @@ export { CARD_TYPES } from "./cards/index.jsx";
 export { DEFAULT_THEME, SIZE, FLOOR, TAP, FONT_HREF, assertFloor, assertContrast, contrast } from "./tokens.js";
 
 // Games: a quiz or trivia game is a deck. See GAMES.md.
-export { default as QuizDeck, TeamStart } from "./games/QuizDeck.jsx";
+export { default as QuizDeck, TeamStart, REVIEW_NOTE } from "./games/QuizDeck.jsx";
+export { default as GameReview, GameReviewLive } from "./games/GameReview.jsx";
 export { default as GameDeck } from "./games/GameDeck.jsx";
 export { default as GamePanel, GamePanelLive } from "./games/GamePanel.jsx";
 export { runGame, listRuns, statsForRuns, acceptInGame } from "./games/host.js";
@@ -20,7 +21,7 @@ export {
   timeLeft, secondsLeft, spreadBuckets,
 } from "./games/score.js";
 export {
-  loadGame, startGame, submitAnswer, moveTo, finishGame, createTeam,
+  loadGame, loadReview, startGame, submitAnswer, moveTo, finishGame, createTeam,
 } from "./games/store.js";
 export {
   liveCards, nextCard, requiresAnswer, isSatisfied,

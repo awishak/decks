@@ -51,7 +51,14 @@ export function useOpenGames({ supabase, groupKey, viewerId, section = null, eve
           const row = (r.data || [])[0];
           if (row) score = { right: row.right_count, answered: row.answered };
         }
-        out.push({ deck: d, questions: (cards.data || []).filter(c => c.deck_id === d.id && c.type === "question").length, done, open: open && !done, score });
+        out.push({
+          deck: d,
+          questions: (cards.data || []).filter(c => c.deck_id === d.id && c.type === "question").length,
+          done, open: open && !done, score,
+          // Whether the key is readable, which is what decides if the way back
+          // into the questions can mark them right or wrong.
+          answersOut: !!d.answers_released_at,
+        });
       }
       setGames(out);
     } catch { /* a missed check is caught by the next one */ }
@@ -111,30 +118,54 @@ export function GamePlay({ supabase, game, viewer, roster, theme, onExit, onErro
   );
 }
 
-/** The open and finished games as a short list, for a community section. */
-export function GamesNow({ games, onStart, theme }) {
+/**
+ * The open and finished games as a short list, for a community section.
+ *
+ * A game that has been played is a way back into it: Andrew, 2026-09-22,
+ * "they might want to go back and click on their game". So a finished row is
+ * a button, and onReview gets the game.
+ *
+ * The door stays shut until the host releases the answers. Andrew, same day:
+ * "students should NOT be able to see any questions or scores until i
+ * release." Releasing the scores puts the number on the row and no more; the
+ * questions come back only with Release answers.
+ */
+export function GamesNow({ games, onStart, onReview, theme }) {
   const T = useMemo(() => ({ ...DEFAULT_THEME, ...theme }), [theme]);
   if (!games.length) return null;
+  const seat = { display: "flex", alignItems: "center", gap: 12, padding: 16, borderRadius: T.radiusLarge, background: T.panel, boxShadow: `0 0 0 1px ${T.line}` };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
-      {games.map(g => (
-        <div key={g.deck.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: 16, borderRadius: T.radiusLarge, background: T.panel, boxShadow: `0 0 0 1px ${T.line}` }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 0 }}>
-            <span style={{ fontSize: SIZE.body, fontWeight: 600 }}>{g.deck.title}</span>
-            {g.open && facts(g) ? <span style={{ fontFamily: T.mono, fontSize: SIZE.micro, color: T.dim }}>{facts(g)}</span> : null}
-          </div>
-          {g.open ? (
-            <button type="button" onClick={() => onStart(g)}
-              style={{ minHeight: TAP, padding: "0 20px", border: "none", borderRadius: T.radius, background: T.accent, color: "#ffffff", fontFamily: T.font, fontSize: SIZE.label, fontWeight: 600, cursor: "pointer" }}>
-              Start
+      {games.map(g => {
+        const back = !g.open && g.done && g.answersOut && !!onReview;
+        const body = (
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 0, textAlign: "left" }}>
+              <span style={{ fontSize: SIZE.body, fontWeight: 600 }}>{g.deck.title}</span>
+              {g.open && facts(g) ? <span style={{ fontFamily: T.mono, fontSize: SIZE.micro, color: T.dim }}>{facts(g)}</span> : null}
+              {back ? <span style={{ fontSize: SIZE.micro, color: T.dim }}>Your answers</span> : null}
+            </div>
+            {g.open ? (
+              <span style={{ minHeight: TAP, display: "inline-flex", alignItems: "center", padding: "0 20px", borderRadius: T.radius, background: T.accent, color: "#ffffff", fontSize: SIZE.label, fontWeight: 600 }}>
+                Start
+              </span>
+            ) : g.score ? (
+              <span style={{ fontFamily: T.mono, fontSize: SIZE.lead }}>{g.score.right} / {g.score.answered}</span>
+            ) : g.done ? (
+              <svg width="22" height="22" viewBox="0 0 16 16" aria-label="Done"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke={T.ok} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            ) : null}
+          </>
+        );
+        if (g.open || back) {
+          return (
+            <button key={g.deck.id} type="button" onClick={() => (g.open ? onStart?.(g) : onReview(g))}
+              style={{ ...seat, width: "100%", border: "none", minHeight: TAP + 32, color: T.text, fontFamily: T.font, cursor: "pointer" }}>
+              {body}
             </button>
-          ) : g.score ? (
-            <span style={{ fontFamily: T.mono, fontSize: SIZE.lead }}>{g.score.right} / {g.score.answered}</span>
-          ) : g.done ? (
-            <svg width="22" height="22" viewBox="0 0 16 16" aria-label="Done"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke={T.ok} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          ) : null}
-        </div>
-      ))}
+          );
+        }
+        return <div key={g.deck.id} style={seat}>{body}</div>;
+      })}
     </div>
   );
 }

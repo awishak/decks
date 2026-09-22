@@ -68,6 +68,37 @@ export async function loadGame(sb, { deckId, viewerId }) {
   return { deck, cards, team, teams, speaksAs, answered, progress, extra };
 }
 
+/**
+ * A finished game, for the person who played it: the questions, what they put,
+ * and the key if the host has released the answers.
+ *
+ * The key and anything accepted later are read plainly. A viewer who is not
+ * allowed them yet gets no rows rather than an error (004_signed_in_rls.sql),
+ * which is what an empty `keys` means to GameReview: their answers, no verdict.
+ */
+export async function loadReview(sb, { deckId, viewerId }) {
+  const game = await loadGame(sb, { deckId, viewerId });
+  if (!game) return null;
+
+  const [keyRows, acceptRows] = await Promise.all([
+    sb.from("deck_keys").select("card_id, correct").eq("deck_id", deckId),
+    sb.from("deck_accepts").select("card_id, value").eq("deck_id", deckId),
+  ]);
+  const keys = {};
+  (must(keyRows, "loadReview/keys") || []).forEach(k => { keys[k.card_id] = k.correct || []; });
+
+  // Their answers by card id, which is what the review screen reads. loadGame
+  // keys the same rows by card key, for the deck that asks the questions.
+  const byKey = Object.fromEntries(game.cards.map(c => [c.key, c.id]));
+  const mine = {};
+  Object.entries(game.answered).forEach(([cardKey, row]) => {
+    const id = byKey[cardKey];
+    if (id) mine[id] = row;
+  });
+
+  return { deck: game.deck, cards: game.cards, mine, keys, accepts: must(acceptRows, "loadReview/accepts") || [], team: game.team };
+}
+
 /** Starts this viewer's clock, once. A second call leaves the first start alone. */
 export async function startGame(sb, { deckId, viewerId }) {
   const existing = (must(
