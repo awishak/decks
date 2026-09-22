@@ -12,6 +12,10 @@
 //                      missed, because the key is readable then and not before
 //   scores released    the number at the top as well
 //
+// A multiple choice question comes back whole: every option in the order they
+// saw it, the right one green with a tick, their own in bold, and a cross on
+// theirs when they missed. Andrew, 2026-09-22.
+//
 // Like QuizDeck, this knows nothing about Supabase: rows in, screen out.
 
 import { useMemo, useState, useEffect } from "react";
@@ -51,6 +55,17 @@ const rightText = (card, correct = []) => {
     .map(i => answerText(card, i))
     .join(" or ");
 };
+
+// One answer on the sheet: the mark, then the words. The mark keeps its own
+// column so the text of every line starts in the same place.
+const Line = ({ T, mark, bold, color, children }) => (
+  <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+    <span style={{ flex: "none", width: 18, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+      {mark === "tick" ? <Tick size={16} color={T.ok} /> : mark === "cross" ? <Cross size={16} color={T.late} /> : null}
+    </span>
+    <span style={{ fontSize: SIZE.body, lineHeight: 1.35, fontWeight: bold ? 600 : 400, color }}>{children}</span>
+  </div>
+);
 
 /**
  * @param {string}   title    The game's name.
@@ -100,7 +115,11 @@ export default function GameReview({ title, cards = [], mine = {}, keys = {}, ac
           const value = row ? row.value : null;
           const gave = answerText(card, value);
           const correct = keys[card.id] || [];
-          const right = answersOut && gave ? isRight(value, correct, acceptedFor[card.id] || []) : null;
+          const taken = acceptedFor[card.id] || [];
+          const right = answersOut && gave ? isRight(value, correct, taken) : null;
+          const typed = card.config?.answer === "typed";
+          // Which options the key calls right, so the list can mark them.
+          const rightOnes = new Set([...correct, ...taken].filter(Number.isInteger));
           const key = rightText(card, correct);
           return (
             <div key={card.id} style={{ background: T.panel, borderRadius: T.radiusLarge, boxShadow: `0 0 0 1px ${T.line}`, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -109,20 +128,37 @@ export default function GameReview({ title, cards = [], mine = {}, keys = {}, ac
                 <span style={{ fontSize: SIZE.body, fontWeight: 600, lineHeight: 1.35 }}>{card.config?.text}</span>
               </div>
 
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingLeft: 26 }}>
-                {right === null ? null : right
-                  ? <span style={{ marginTop: 2 }}><Tick size={18} color={T.ok} /></span>
-                  : <span style={{ marginTop: 2 }}><Cross size={18} color={T.late} /></span>}
-                <span style={{ fontSize: SIZE.body, lineHeight: 1.35, color: gave ? T.text : T.faint }}>
-                  {gave || "No answer"}
-                </span>
-              </div>
-
-              {right === false && key ? (
-                <div style={{ paddingLeft: 26, fontSize: SIZE.small, color: T.dim, lineHeight: 1.4 }}>
-                  Right answer: {key}
+              {typed ? (
+                // Nothing was on offer, so their words stand on their own.
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingLeft: 26 }}>
+                  <Line T={T} mark={right === null ? null : right ? "tick" : "cross"} bold
+                    color={right === true ? T.ok : gave ? T.text : T.faint}>
+                    {gave || "No answer"}
+                  </Line>
+                  {right === false && key ? (
+                    <Line T={T} mark="tick" color={T.ok}>{key}</Line>
+                  ) : null}
                 </div>
-              ) : null}
+              ) : (
+                // Every option, in the order they saw them: the right one green
+                // with a tick, theirs in bold, a cross on theirs when it missed.
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingLeft: 26 }}>
+                  {(card.config?.options || []).map((option, n) => {
+                    const theirs = value !== null && value !== undefined && Number(value) === n;
+                    const isKey = answersOut && rightOnes.has(n);
+                    return (
+                      <Line key={n} T={T} bold={theirs}
+                        mark={isKey ? "tick" : theirs && right === false ? "cross" : null}
+                        color={isKey ? T.ok : theirs ? T.text : T.dim}>
+                        {LETTERS[n]} · {option}
+                      </Line>
+                    );
+                  })}
+                  {gave ? null : (
+                    <span style={{ fontSize: SIZE.small, color: T.faint }}>No answer</span>
+                  )}
+                </div>
+              )}
 
               {row?.review ? (
                 <div style={{ paddingLeft: 26, fontSize: SIZE.micro, color: T.faint }}>

@@ -370,8 +370,18 @@ async function main() {
     const html = renderToString(<GameReview title="Week 1" cards={cards} result={{ right: 1, answered: 2 }}
       mine={{ [cards[0].id]: { value: week1.questions[0].correct }, [cards[1].id]: { value: 0, review: true } }}
       keys={{ [cards[0].id]: [week1.questions[0].correct], [cards[1].id]: [3] }} />);
-    return html.includes(cards[0].config.text) && html.includes("Right answer:")
-      && /1<!-- --> \/ <!-- -->2/.test(html) && html.includes("You asked for a review");
+    return html.includes(cards[0].config.text) && /1<!-- --> \/ <!-- -->2/.test(html)
+      && html.includes("You asked for a review");
+  });
+  await check("every option comes back: the key green and ticked, theirs bold, a cross where they missed", () => {
+    const card = { ...cards1[1], config: { ...cards1[1].config, options: ["Aye", "Bee", "Cee", "Dee"] } };
+    const html = renderToString(<GameReview title="Week 1" cards={[card]}
+      mine={{ [card.id]: { value: 0 } }} keys={{ [card.id]: [3] }} />);
+    const rows = html.split("<div").filter(d => /Aye|Bee|Cee|Dee/.test(d));
+    const theirs = html.slice(html.indexOf("Aye") - 300, html.indexOf("Aye"));
+    const key = html.slice(html.indexOf("Dee") - 300, html.indexOf("Dee"));
+    return rows.length === 4 && /font-weight:600/.test(theirs) && key.includes(DEFAULT_THEME.ok)
+      && html.includes(DEFAULT_THEME.late) && /A<!-- --> · <!-- -->Aye/.test(html);
   });
   await check("with the key still in, the review gives their answers and no verdict", () => {
     const cards = cards1.slice(0, 1);
