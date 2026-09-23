@@ -13,7 +13,7 @@ import GamePanel from "../src/games/GamePanel.jsx";
 import GamesHome from "../src/games/GamesHome.jsx";
 import { formFrom, toSave, problems } from "../src/games/GameSetup.jsx";
 import { GameStart, GamesNow, AGREEMENT } from "../src/games/GameInvite.jsx";
-import { saveGame, denyAnswer, undoVerdict, runGame, listRuns, listGames, acceptInGame } from "../src/games/host.js";
+import { saveGame, denyAnswer, undoVerdict, runGame, listRuns, listGames, acceptInGame, moveGame, duplicateGame } from "../src/games/host.js";
 import RunPicker from "../src/games/RunPicker.jsx";
 import {
   norm, isRight, scoreGame, previewAccept, groupTyped, isClose,
@@ -195,6 +195,53 @@ async function main() {
     const done = await acceptInGame(sb, { runId: r.id, cardId: card.id, value: "Sticks" });
     return done && eq(sb.tables.deck_keys.find(k => k.card_id === "c1").correct, ["The stick", "Sticks"]);
   });
+  console.log("\nmoving and duplicating");
+  const closeRun = (sb, r) => { sb.tables.decks.find(d => d.id === r.id).closed_at = "2026-04-02T18:00:00Z"; };
+  await check("Move puts a game on another shelf, and its runs come with it and keep their class", async () => {
+    const sb = runWorld();
+    closeRun(sb, await runGame(sb, { deckId: "g", groupKey: "comm3", section: "8:00" }));
+    const moved = await moveGame(sb, { deckId: "g", groupKey: "comm118" });
+    const runs = await listRuns(sb, { deckId: "g" });
+    return moved.id === "g" && eq((await listGames(sb, { groupKey: "comm3" })).length, 0)
+      && eq((await listGames(sb, { groupKey: "comm118" })).map(x => x.id), ["g"])
+      && runs.length === 1 && runs[0].group_key === "comm3" && runs[0].section === "8:00";
+  });
+  await check("a game with a run still open stays put", async () => {
+    const sb = runWorld();
+    await runGame(sb, { deckId: "g", groupKey: "comm3", section: "8:00" });
+    const err = await moveGame(sb, { deckId: "g", groupKey: "comm118" }).then(() => null, e => e);
+    return err?.code === "open" && sb.tables.decks[0].group_key === "comm3";
+  });
+  await check("a run stays with the class that played it", async () => {
+    const sb = runWorld();
+    const r = await runGame(sb, { deckId: "g", groupKey: "comm3", section: "8:00" });
+    const err = await moveGame(sb, { deckId: r.id, groupKey: "comm118" }).then(() => null, e => e);
+    return err?.code === "run";
+  });
+  await check("a game that was its own first run moves as a new game and stays behind as that run", async () => {
+    const sb = runWorld();
+    sb.tables.decks[0].opened_at = "2026-04-02T17:00:00Z";
+    sb.tables.decks[0].closed_at = "2026-04-02T18:00:00Z";
+    sb.tables.deck_accepts.push({ id: "a1", deck_id: "g", card_id: "c1", value: "Sticks" });
+    closeRun(sb, await runGame(sb, { deckId: "g", groupKey: "comm3", section: "10:30" }));
+    const moved = await moveGame(sb, { deckId: "g", groupKey: "comm118" });
+    const runs = await listRuns(sb, { deckId: moved.id });
+    const card = sb.tables.deck_cards.find(c => c.deck_id === moved.id);
+    return moved.id !== "g" && !moved.opened_at && moved.time_limit_min === 15
+      && eq((await listGames(sb, { groupKey: "comm118" })).map(x => x.id), [moved.id])
+      && eq((await listGames(sb, { groupKey: "comm3" })).length, 0)
+      && runs.length === 2 && runs.every(r => r.group_key === "comm3") && runs.some(r => r.id === "g")
+      && card.key === "q1" && eq(sb.tables.deck_keys.find(k => k.card_id === card.id).correct, ["The stick", "Sticks"]);
+  });
+  await check("Duplicate makes an unopened game beside it with the same questions, answers and settings", async () => {
+    const sb = runWorld();
+    const copy = await duplicateGame(sb, { deckId: "g" });
+    const card = sb.tables.deck_cards.find(c => c.deck_id === copy.id);
+    return copy.id !== "g" && copy.title === "Week 1 copy" && copy.group_key === "comm3" && !copy.published && !copy.opened_at
+      && copy.time_limit_min === 15 && card.key === "q1" && eq(sb.tables.deck_keys.find(k => k.card_id === card.id).correct, ["The stick"])
+      && eq((await listGames(sb, { groupKey: "comm3" })).length, 2) && eq((await listRuns(sb, { deckId: copy.id })).length, 0);
+  });
+
   await check("the Run picker lists each section and marks one already open", () => {
     const html = renderToString(<RunPicker T={DEFAULT_THEME} inline groups={[{ groupKey: "comm3", section: "8:00", label: "COMM 3 · 8:00" }, { groupKey: "comm3", section: "10:30", label: "COMM 3 · 10:30" }]}
       openFor={[{ groupKey: "comm3", section: "8:00" }]} onRun={() => {}} />);

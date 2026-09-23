@@ -17,7 +17,7 @@
 
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { DEFAULT_THEME, SIZE } from "../tokens.js";
-import { listGames, listGameStats, listRuns, statsForRuns, createGame, runGame } from "./host.js";
+import { listGames, listGameStats, listRuns, statsForRuns, createGame, runGame, moveGame, duplicateGame } from "./host.js";
 import { GamePanelLive } from "./GamePanel.jsx";
 import GameSetup from "./GameSetup.jsx";
 import RunPicker from "./RunPicker.jsx";
@@ -47,8 +47,9 @@ export default function GamesHome({ supabase, groupKey, context, roster = [], gr
   const [runStats, setRunStats] = useState({});
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
 
-  const go = useCallback((next) => { const w = { game: null, run: null, edit: false, ...next }; writeHash(w); setWhere(w); }, []);
+  const go = useCallback((next) => { const w = { game: null, run: null, edit: false, ...next }; writeHash(w); setWhere(w); setNote(""); }, []);
 
   const refresh = useCallback(async () => {
     try { setGames(await listGames(supabase, { groupKey })); } catch (e) { onError?.(e); setGames([]); }
@@ -86,6 +87,32 @@ export default function GamesHome({ supabase, groupKey, context, roster = [], gr
       await refreshRuns(gameId);
       go({ game: gameId, run: r.id });
     } catch (e) { onError?.(e); }
+  };
+
+  // The other shelves a game can move to: one entry per class, whatever the
+  // sections the host listed for running. A class's label is its section
+  // label with the section taken off the end.
+  const shelves = [];
+  groups.forEach(g => {
+    if (g.groupKey === groupKey || shelves.some(s => s.groupKey === g.groupKey)) return;
+    const tail = g.section ? ` · ${g.section}` : "";
+    const label = tail && g.label.endsWith(tail) ? g.label.slice(0, -tail.length) : g.label;
+    shelves.push({ groupKey: g.groupKey, section: null, label });
+  });
+  const move = async (gameId, target) => {
+    try {
+      await moveGame(supabase, { deckId: gameId, groupKey: target.groupKey });
+      await refresh();
+      go({});
+      setNote(`Moved to ${target.label}`);
+    } catch (e) { onError?.(e); }
+  };
+  const duplicate = async (gameId) => {
+    if (busy) return;
+    setBusy(true);
+    try { const d = await duplicateGame(supabase, { deckId: gameId }); await refresh(); go({ game: d.id, edit: true }); }
+    catch (e) { onError?.(e); }
+    finally { setBusy(false); }
   };
 
   const tone = { Open: [T.ok, T.okTint], Draft: [T.dim, T.panel2], Closed: [T.faint, T.panel2] };
@@ -128,6 +155,8 @@ export default function GamesHome({ supabase, groupKey, context, roster = [], gr
         {header(game?.title || "", [context, game ? `${game.questions} ${game.questions === 1 ? "question" : "questions"}` : ""].filter(Boolean).join(" · "),
           <span style={{ display: "flex", gap: 8 }}>
             {!game?.opened_at ? <button type="button" style={ghost} onClick={() => go({ game: where.game, edit: true })}>Edit</button> : null}
+            <button type="button" style={ghost} disabled={busy} onClick={() => duplicate(where.game)}>Duplicate</button>
+            {shelves.length ? <RunPicker T={T} groups={shelves} onRun={(target) => move(where.game, target)} label="Move" solid={false} /> : null}
             {groups.length ? <RunPicker T={T} groups={groups} openFor={openFor} onRun={(target) => run(where.game, target)} /> : null}
           </span>)}
         <div style={{ padding: "24px 32px" }}>
@@ -159,7 +188,7 @@ export default function GamesHome({ supabase, groupKey, context, roster = [], gr
     const cols = "minmax(0, 1fr) minmax(90px, 160px) 90px minmax(150px, 220px) 100px 80px 80px";
     main = (
       <div>
-        {header("Games", context)}
+        {header("Games", [context, note].filter(Boolean).join(" · "))}
         <div style={{ padding: "24px 32px" }}>
           <div style={{ background: T.panel, borderRadius: T.radiusLarge, boxShadow: `0 0 0 1px ${T.line}`, overflow: "hidden" }}>
             <div style={{ display: "grid", gridTemplateColumns: cols, gap: 16, padding: "12px 20px", fontSize: SIZE.micro, color: T.faint, boxShadow: `0 1px 0 ${T.line}` }}>

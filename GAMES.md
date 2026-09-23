@@ -66,6 +66,8 @@ cannot lose an answer that way, and encore and f5 get the same game later.
   review, Accept with a preview of what changes.
 - Free-form: accepted, close to accepted, other answers, each with Accept.
 - After: Release scores, Release answers, Take it later, room screen views.
+- A game moves to another class's shelf, runs and all, once no run of it is open.
+  Duplicate makes a fresh game beside it with the same questions and no runs.
 
 **Room screen**
 - During: time left and how many submitted. Calm, not a countdown in your face.

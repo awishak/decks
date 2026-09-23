@@ -133,14 +133,74 @@ export async function runGame(sb, { deckId, groupKey, section = null }) {
     kind: "game", teams: d.teams, time_limit_min: d.time_limit_min, gradebook: d.gradebook,
     source_id: d.source_id || d.id, published: true, opened_at: now, created_at: now,
   }).select(), "runGame/deck")[0];
-  for (const c of game.cards) {
-    const card = mustWrite(await sb.from("deck_cards").insert({ deck_id: run.id, position: c.position, type: "question", key: c.key, config: c.config }).select(), "runGame/card")[0];
-    // A run starts with every answer the game counts right: its key, and any answer
-    // approved when it ran before (a game run before runs existed keeps those as approvals).
-    const approved = game.accepts.filter(a => a.card_id === c.id && !(a.value && typeof a.value === "object")).map(a => a.value);
-    mustWrite(await sb.from("deck_keys").insert({ card_id: card.id, deck_id: run.id, correct: [...(game.keys[c.id] || []), ...approved] }).select(), "runGame/key");
-  }
+  await copyQuestions(sb, game, run.id, "runGame");
   return run;
+}
+
+// A game's questions and right answers, written onto another deck. Each key
+// carries every answer the game counts right: its key, and any answer approved
+// when it ran before runs existed (that game keeps those as approvals).
+async function copyQuestions(sb, game, deckId, what) {
+  for (const c of game.cards) {
+    const card = mustWrite(await sb.from("deck_cards").insert({ deck_id: deckId, position: c.position, type: "question", key: c.key, config: c.config }).select(), `${what}/card`)[0];
+    const approved = game.accepts.filter(a => a.card_id === c.id && !(a.value && typeof a.value === "object")).map(a => a.value);
+    mustWrite(await sb.from("deck_keys").insert({ card_id: card.id, deck_id: deckId, correct: [...(game.keys[c.id] || []), ...approved] }).select(), `${what}/key`);
+  }
+}
+
+// ─── moving and duplicating ───
+//
+// A game sits on one class's shelf, and a class's Games page and day plans
+// only offer the games on its shelf. A game built for last term's class moves
+// to this term's, and its runs come with it: a run hangs off the game, not the
+// shelf, and keeps the class it was opened to.
+
+/**
+ * Move a game to another class's shelf. Resolves with the game as it is now.
+ *
+ * A run stays put, and a game with a run still open stays put until the run is
+ * closed. A game that ran before runs existed is its own first run, and that
+ * run keeps its class: so the questions go to a new game on the new shelf, and
+ * the row that ran stays behind as the first run of it, with the later runs.
+ */
+export async function moveGame(sb, { deckId, groupKey }) {
+  const game = await loadHostGame(sb, { deckId });
+  if (!game) throw Object.assign(new Error("moveGame: no such game"), { code: "missing" });
+  const d = game.deck;
+  if (d.source_id) throw Object.assign(new Error("A run stays with the class that played it."), { code: "run" });
+  if (d.group_key === groupKey) return d;
+  const runs = await listRuns(sb, { deckId });
+  if (runs.some(r => r.opened_at && !r.closed_at)) throw Object.assign(new Error("A run of this game is open. Close it first."), { code: "open" });
+  if (!d.opened_at) {
+    return mustWrite(await sb.from("decks").update({ group_key: groupKey }).eq("id", deckId).select(), "moveGame")[0];
+  }
+  const moved = mustWrite(await sb.from("decks").insert({
+    key: `${groupKey}-game-${Date.now().toString(36)}`, title: d.title, group_key: groupKey,
+    kind: "game", published: false, teams: d.teams, time_limit_min: d.time_limit_min, gradebook: d.gradebook,
+    created_at: new Date().toISOString(),
+  }).select(), "moveGame/game")[0];
+  await copyQuestions(sb, game, moved.id, "moveGame");
+  must(await sb.from("decks").update({ source_id: moved.id }).eq("source_id", deckId), "moveGame/runs");
+  mustWrite(await sb.from("decks").update({ source_id: moved.id }).eq("id", deckId).select(), "moveGame/first");
+  return moved;
+}
+
+/**
+ * A fresh game beside this one: the same questions, right answers and
+ * settings, not yet opened, with no runs. On another shelf when groupKey says so.
+ */
+export async function duplicateGame(sb, { deckId, groupKey = null, title = null }) {
+  const game = await loadHostGame(sb, { deckId });
+  if (!game) throw Object.assign(new Error("duplicateGame: no such game"), { code: "missing" });
+  const d = game.deck;
+  const to = groupKey || d.group_key;
+  const copy = mustWrite(await sb.from("decks").insert({
+    key: `${to}-game-${Date.now().toString(36)}`, title: (title || `${d.title} copy`).trim(), group_key: to,
+    kind: "game", published: false, teams: d.teams, time_limit_min: d.time_limit_min, gradebook: d.gradebook,
+    created_at: new Date().toISOString(),
+  }).select(), "duplicateGame")[0];
+  await copyQuestions(sb, game, copy.id, "duplicateGame");
+  return copy;
 }
 
 /** A game's runs, newest first. A game that ran before runs existed counts as its own first run. */

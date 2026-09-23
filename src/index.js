@@ -12,7 +12,7 @@ export { default as GameDeck } from "./games/GameDeck.jsx";
 export { default as GamePanel, GamePanelLive } from "./games/GamePanel.jsx";
 export { runGame, listRuns, statsForRuns, acceptInGame } from "./games/host.js";
 export { default as RunPicker } from "./games/RunPicker.jsx";
-export { loadHostGame, listGames, listGameStats, denyAnswer, undoVerdict, createGame, saveGame, saveTeams, acceptAnswer, openGame, closeGame, release, grantExtraTime, watchGame } from "./games/host.js";
+export { loadHostGame, listGames, listGameStats, denyAnswer, undoVerdict, createGame, moveGame, duplicateGame, saveGame, saveTeams, acceptAnswer, openGame, closeGame, release, grantExtraTime, watchGame } from "./games/host.js";
 export { default as GameSetup, formFrom, toSave, problems } from "./games/GameSetup.jsx";
 export { default as GamesHome } from "./games/GamesHome.jsx";
 export { useOpenGames, GameStart, GamePlay, GamesNow, AGREEMENT } from "./games/GameInvite.jsx";
