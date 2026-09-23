@@ -24,6 +24,27 @@ import RunPicker from "./RunPicker.jsx";
 const LETTERS = "ABCDEFGHIJ";
 const HIT = 34;   // an instructor surface: a trackpad under your hands
 
+// A player, as a face. The host app hands each roster row an optional picture;
+// without one the circle carries their initials. Andrew, 2026-09-23: "i'd also
+// like us to be using avatars anywhere their names appear ... games."
+const initialsOf = (name) => String(name || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpperCase();
+
+function Who({ T, id, nameOf, photoOf, size = 22, children }) {
+  const name = nameOf(id);
+  const photo = photoOf ? photoOf(id) : "";
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+      <span style={{ flex: "none", width: size, height: size, borderRadius: 999, overflow: "hidden",
+        background: T.panel2, color: T.dim, display: "inline-flex", alignItems: "center", justifyContent: "center",
+        fontSize: SIZE.micro, fontWeight: 700 }}>
+        {photo ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : initialsOf(name)}
+      </span>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+      {children}
+    </span>
+  );
+}
+
 const Tick = ({ size = 15, color }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" style={{ flex: "none" }}>
     <path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -33,7 +54,8 @@ const Tick = ({ size = 15, color }) => (
 /**
  * @param {string}   context   Above the title, e.g. the class code.
  * @param {object}   game      { deck, cards, keys, accepts, responses, progress, teams, extra }.
- * @param {object[]} roster    [{ id, name }]: who could play. Ids match viewer ids.
+ * @param {object[]} roster    [{ id, name, photo }]: who could play, with their
+ *                             picture when the host has one. Ids match viewer ids.
  * @param {number}   now       Milliseconds, for the clock.
  * @param {object}   on        { accept(cardId, value), close(), release(kind), extraTime(viewerId, minutes), screen(view) }
  *                             Each may return a promise.
@@ -49,6 +71,8 @@ export default function GamePanel({ context, game, roster = [], now = Date.now()
 
   const teamGame = deck.teams && deck.teams !== "none";
   const nameOf = (id) => teams.find(t => t.id === id)?.name || roster.find(r => r.id === id)?.name || id;
+  // A team answers as itself and has no face, so only a person gets one.
+  const photoOf = (id) => roster.find(r => r.id === id)?.photo || "";
   const submitted = progress.filter(p => p.completed_at).length;
   const answering = new Set(deck.closed_at ? [] : progress.filter(p => !p.completed_at).map(p => p.viewer_id));
   const started = new Set(progress.map(p => p.viewer_id));
@@ -101,18 +125,18 @@ export default function GamePanel({ context, game, roster = [], now = Date.now()
         </div>
 
         {closed && !card ? (
-          <AfterClose T={T} deck={deck} score={score} notStarted={notStarted} extra={extra} nameOf={nameOf} on={on} />
+          <AfterClose T={T} deck={deck} score={score} notStarted={notStarted} extra={extra} nameOf={nameOf} photoOf={photoOf} on={on} />
         ) : null}
 
         {card ? (
-          <OneQuestion T={T} cards={cards} card={card} score={score} game={game} nameOf={nameOf} closed={closed}
+          <OneQuestion T={T} cards={cards} card={card} score={score} game={game} nameOf={nameOf} photoOf={photoOf} closed={closed}
             onPick={setOpenCard} onBack={() => setOpenCard(null)} on={on} />
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 400px", gap: 24, padding: "24px 32px" }}>
             <AllQuestions T={T} score={score} onOpen={setOpenCard} />
             <div style={{ display: "flex", flexDirection: "column", gap: 24, minWidth: 0 }}>
-              {deck.opened_at && kinds.has("typed") ? <ApprovalStream T={T} game={game} nameOf={nameOf} on={on} /> : null}
-              <Ranking T={T} ranking={score.ranking} average={score.average} nameOf={nameOf} answering={answering} />
+              {deck.opened_at && kinds.has("typed") ? <ApprovalStream T={T} game={game} nameOf={nameOf} photoOf={photoOf} on={on} /> : null}
+              <Ranking T={T} ranking={score.ranking} average={score.average} nameOf={nameOf} photoOf={photoOf} answering={answering} />
             </div>
           </div>
         )}
@@ -192,7 +216,7 @@ function AllQuestions({ T, score, onOpen }) {
 // host's switch, remembered in this browser.
 const NAMES_KEY = "decks-stream-names";
 
-function ApprovalStream({ T, game, nameOf, on }) {
+function ApprovalStream({ T, game, nameOf, photoOf, on }) {
   const s = styles(T);
   const [names, setNames] = useState(() => { try { return localStorage.getItem(NAMES_KEY) === "1"; } catch { return false; } });
   const [busy, setBusy] = useState(null);
@@ -229,7 +253,11 @@ function ApprovalStream({ T, game, nameOf, on }) {
                 {e.count > 1 ? <span style={{ fontFamily: T.mono, fontSize: SIZE.small, color: T.dim }}>×{e.count}</span> : null}
               </span>
               {e.closeTo !== null ? <span style={{ fontSize: SIZE.micro, fontWeight: 600, color: T.warn }}>Close to {e.closeTo}</span> : null}
-              {names ? <span style={{ fontSize: SIZE.micro, color: T.dim }}>{e.viewers.map(nameOf).join(", ")}</span> : null}
+              {names ? (
+                <span style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: SIZE.micro, color: T.dim }}>
+                  {e.viewers.map(v => <Who key={v} T={T} id={v} nameOf={nameOf} photoOf={photoOf} size={18} />)}
+                </span>
+              ) : null}
               <span style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                 <button type="button" style={s.ghost} disabled={!!busy} onClick={() => decide(key, () => on.deny?.(e.cardId, e.value))}>Deny</button>
                 <button type="button" style={s.solid} disabled={!!busy} onClick={() => decide(key, () => on.accept?.(e.cardId, e.value))}>Approve</button>
@@ -256,7 +284,7 @@ function ApprovalStream({ T, game, nameOf, on }) {
   );
 }
 
-function Ranking({ T, ranking, average, nameOf, answering }) {
+function Ranking({ T, ranking, average, nameOf, photoOf, answering }) {
   return (
     <div style={{ background: T.panel, borderRadius: T.radiusLarge, boxShadow: `0 0 0 1px ${T.line}`, padding: "14px 0 10px", alignSelf: "start", width: "100%" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "0 20px 8px" }}>
@@ -273,7 +301,7 @@ function Ranking({ T, ranking, average, nameOf, answering }) {
         <div key={v.viewerId} style={{ display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) 64px 48px", alignItems: "center", gap: 12, minHeight: 28, padding: "0 20px" }}>
           <span style={{ fontFamily: T.mono, fontSize: SIZE.micro, color: T.faint }}>{i + 1}</span>
           <span style={{ fontSize: SIZE.small, display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameOf(v.viewerId)}</span>
+            <Who T={T} id={v.viewerId} nameOf={nameOf} photoOf={photoOf} />
             {answering.has(v.viewerId) ? <span title="Answering" style={{ flex: "none", width: 8, height: 8, borderRadius: 999, background: T.ok }} /> : null}
           </span>
           <span style={{ fontFamily: T.mono, fontSize: SIZE.micro, color: T.faint, textAlign: "right" }}>{v.right}/{v.answered}</span>
@@ -302,7 +330,7 @@ function CloseConfirm({ T, title, submitted, answering, notStarted, teamGame, on
   );
 }
 
-function OneQuestion({ T, cards, card, score, game, nameOf, closed, onPick, onBack, on }) {
+function OneQuestion({ T, cards, card, score, game, nameOf, photoOf, closed, onPick, onBack, on }) {
   const s = styles(T);
   const [pending, setPending] = useState(null);   // { value, label }
   const qi = cards.findIndex(c => c.id === card.id);
@@ -347,7 +375,7 @@ function OneQuestion({ T, cards, card, score, game, nameOf, closed, onPick, onBa
         </div>
 
         {q.typed ? (
-          <TypedAnswers T={T} q={q} correct={correct} accepted={accepted} nameOf={nameOf} game={game} card={card}
+          <TypedAnswers T={T} q={q} correct={correct} accepted={accepted} nameOf={nameOf} photoOf={photoOf} game={game} card={card}
             onAccept={(value) => setPending({ value, label: value })} onUndo={(id) => on.undo?.(id)} />
         ) : (
           <ChoiceAnswers T={T} q={q} card={card} correct={correct} accepted={accepted}
@@ -413,7 +441,7 @@ function ChoiceAnswers({ T, q, card, correct, accepted, onAccept }) {
   );
 }
 
-function TypedAnswers({ T, q, correct, accepted, nameOf, game, card, onAccept, onUndo }) {
+function TypedAnswers({ T, q, correct, accepted, nameOf, photoOf, game, card, onAccept, onUndo }) {
   const s = styles(T);
   const groups = groupTyped(q.answers.filter(a => !a.denied), correct, accepted);
   // A denied answer shows with its denial, and Undo sends its words back to the stream.
@@ -423,7 +451,9 @@ function TypedAnswers({ T, q, correct, accepted, nameOf, game, card, onAccept, o
   const row = (a, kind) => (
     <div key={a.viewerId} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 220px 104px", alignItems: "center", gap: 16, minHeight: 52, padding: "8px 20px", boxShadow: `0 1px 0 ${T.line}` }}>
       <span style={{ fontSize: SIZE.body }}>{String(a.value)}</span>
-      <span style={{ fontSize: SIZE.small, color: T.dim, display: "flex", alignItems: "center", gap: 6 }}>{nameOf(a.viewerId)}{a.review ? <Tick color={T.warn} /> : null}</span>
+      <span style={{ fontSize: SIZE.small, color: T.dim, display: "flex", alignItems: "center", gap: 6 }}>
+        <Who T={T} id={a.viewerId} nameOf={nameOf} photoOf={photoOf} />{a.review ? <Tick color={T.warn} /> : null}
+      </span>
       <span style={{ textAlign: "right" }}>
         {kind === "denied"
           ? <button type="button" style={s.quiet} onClick={() => { const d = denialOf(a.value); if (d) onUndo?.(d.id); }}>Undo</button>
@@ -451,7 +481,7 @@ function TypedAnswers({ T, q, correct, accepted, nameOf, game, card, onAccept, o
   );
 }
 
-function AfterClose({ T, deck, score, notStarted, extra, nameOf, on }) {
+function AfterClose({ T, deck, score, notStarted, extra, nameOf, photoOf, on }) {
   const rc = on.runControl;
   const s = styles(T);
   const [minutes, setMinutes] = useState({});
@@ -486,7 +516,7 @@ function AfterClose({ T, deck, score, notStarted, extra, nameOf, on }) {
           const given = extra.find(x => x.viewer_id === id);
           return (
             <div key={id} style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 52, padding: "0 20px", boxShadow: `0 1px 0 ${T.line}` }}>
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{nameOf(id)}</span>
+              <span style={{ flex: 1, minWidth: 0 }}><Who T={T} id={id} nameOf={nameOf} photoOf={photoOf} /></span>
               {given ? <span style={{ fontFamily: T.mono, color: T.ok }}>{given.minutes} min</span> : (
                 <>
                   <input type="number" min="1" max="240" aria-label={`Minutes for ${nameOf(id)}`} value={minutes[id] ?? ""}
